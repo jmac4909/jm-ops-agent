@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="description" content="JM Ops Agent — read-only operational triage for DEV and TEST services">
+    <title th:text="${title} + ' · JM Ops Agent'">JM Ops Agent</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}" href="/css/app.css">
+    <script th:src="@{/js/app.js}" src="/js/app.js" defer></script>
+</head>
+<body>
+<a th:fragment="skipLink" class="skip-link" href="#main-content">Skip to main content</a>
+
+<div th:fragment="sidebar(recentInvestigations, currentInvestigationId)" class="sidebar-inner">
+    <a class="brand" th:href="@{/}" href="/" aria-label="JM Ops Agent home">
+        <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img">
+                <path d="M7.5 21.8V10.2L16 5.3l8.5 4.9v11.6L16 26.7z"></path>
+                <path d="m11.2 17 3.1 3.1 6.8-7.3"></path>
+            </svg>
+        </span>
+        <span>
+            <strong>JM Ops Agent</strong>
+            <small>Operational triage</small>
+        </span>
+    </a>
+
+    <nav class="primary-nav" aria-label="Primary navigation">
+        <a th:href="@{/}" href="/">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"></path></svg>
+            New investigation
+        </a>
+        <a th:href="@{/diagnostics}" href="/diagnostics">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a8.8 8.8 0 0 0-.1-1.3l2-1.5-2-3.5-2.5 1a9.3 9.3 0 0 0-2.2-1.3L15.8 3h-4l-.4 2.4c-.8.3-1.5.7-2.2 1.3l-2.5-1-2 3.5 2 1.5A8.8 8.8 0 0 0 6.6 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.5 2.5-1c.7.6 1.4 1 2.2 1.3l.4 2.4h4l.4-2.4c.8-.3 1.5-.7 2.2-1.3l2.5 1 2-3.5-2-1.5c.1-.4.1-.9.1-1.3Z"></path></svg>
+            System diagnostics
+        </a>
+    </nav>
+
+    <section class="recent-section" aria-labelledby="recent-heading">
+        <div class="sidebar-heading">
+            <h2 id="recent-heading">Recent investigations</h2>
+            <span class="count" th:if="${recentInvestigations != null}" th:text="${#lists.size(recentInvestigations)}">0</span>
+        </div>
+
+        <div class="recent-list" th:if="${recentInvestigations != null and !#lists.isEmpty(recentInvestigations)}">
+            <a class="recent-item"
+               th:each="recent : ${recentInvestigations}"
+               th:href="@{/investigations/{id}(id=${recent.id})}"
+               th:classappend="${currentInvestigationId != null and recent.id == currentInvestigationId} ? ' is-active' : ''"
+               href="/investigations/1">
+                <span class="recent-row">
+                    <strong th:text="${recent.service != null and !#strings.isEmpty(recent.service) ? recent.service : 'Tracking ID trace'}">catalog-service</strong>
+                    <span class="env-badge" th:text="${recent.environment}">TEST</span>
+                </span>
+                <span class="recent-meta">
+                    <time data-format-datetime th:attr="datetime=${recent.startedAt}" th:text="${recent.startedAt != null ? recent.startedAt : 'Queued'}">Sep 4, 10:40</time>
+                    <span aria-hidden="true">·</span>
+                    <span class="compact-status" th:attr="data-status=${recent.status}" th:text="${recent.status != null ? #strings.replace(recent.status, '_', ' ') : 'CREATED'}">COMPLETED</span>
+                </span>
+                <span class="recent-category" th:if="${recent.rootCauseCategory != null}" th:text="${#strings.replace(recent.rootCauseCategory, '_', ' ')}">CONFIG</span>
+            </a>
+        </div>
+
+        <div class="sidebar-empty" th:if="${recentInvestigations == null or #lists.isEmpty(recentInvestigations)}">
+            <span aria-hidden="true">○</span>
+            <p>Completed and active investigations will appear here.</p>
+        </div>
+    </section>
+
+    <div class="sidebar-footer">
+        <span class="safety-dot" aria-hidden="true"></span>
+        <span><strong>Read-only mode</strong><small>DEV and TEST only</small></span>
+    </div>
+</div>
+
+<span th:fragment="statusBadge(status)" class="status-badge" th:attr="data-status=${status}" th:text="${status != null ? #strings.replace(status, '_', ' ') : 'UNKNOWN'}">COMPLETED</span>
+</body>
+</html>

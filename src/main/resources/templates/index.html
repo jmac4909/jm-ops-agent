@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: head('New investigation')}">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>New investigation · JM Ops Agent</title>
+    <link rel="stylesheet" href="/css/app.css">
+    <script src="/js/app.js" defer></script>
+</head>
+<body>
+<a th:replace="~{fragments/common :: skipLink}" class="skip-link" href="#main-content">Skip to main content</a>
+
+<div class="app-shell">
+    <aside class="sidebar" id="app-sidebar" aria-label="Application sidebar">
+        <div th:replace="~{fragments/common :: sidebar(${recentInvestigations}, null)}"></div>
+    </aside>
+
+    <main class="main" id="main-content">
+        <header class="mobile-header">
+            <button class="icon-button sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+            </button>
+            <span>JM Ops Agent</span>
+            <a class="icon-button" th:href="@{/diagnostics}" href="/diagnostics" aria-label="System diagnostics">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a8.8 8.8 0 0 0-.1-1.3l2-1.5-2-3.5-2.5 1a9.3 9.3 0 0 0-2.2-1.3L15.8 3h-4l-.4 2.4c-.8.3-1.5.7-2.2 1.3l-2.5-1-2 3.5 2 1.5A8.8 8.8 0 0 0 6.6 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.5 2.5-1c.7.6 1.4 1 2.2 1.3l.4 2.4h4l.4-2.4c.8-.3 1.5-.7 2.2-1.3l2.5 1 2-3.5-2-1.5c.1-.4.1-.9.1-1.3Z"></path></svg>
+            </a>
+        </header>
+
+        <div class="page-container page-container--narrow">
+            <header class="page-header hero-header">
+                <div>
+                    <p class="eyebrow"><span class="safety-dot" aria-hidden="true"></span> Read-only operational analysis</p>
+                    <h1>Where should we start?</h1>
+                    <p class="page-lead">Trace a request across services or investigate a known service. Evidence is collected through constrained DEV and TEST adapters.</p>
+                </div>
+                <a class="diagnostic-link" th:href="@{/diagnostics}" href="/diagnostics">
+                    <span class="diagnostic-indicator" aria-hidden="true"></span>
+                    Check connections
+                </a>
+            </header>
+
+            <div class="alert alert--error" role="alert" th:if="${error != null}">
+                <strong>Investigation could not start.</strong>
+                <span th:text="${error}">Check the submitted details and try again.</span>
+            </div>
+            <div class="alert alert--success" role="status" th:if="${notice != null}">
+                <span th:text="${notice}">Saved.</span>
+            </div>
+
+            <section class="launch-card" aria-labelledby="launch-heading">
+                <h2 id="launch-heading" class="sr-only">Start an investigation</h2>
+                <div class="mode-tabs" role="tablist" aria-label="Investigation type">
+                    <button id="service-tab" class="mode-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="service-panel" data-tab-target="service-panel">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v5H5V4Zm0 11h14v5H5v-5Zm3-4h8v2H8v-2Z"></path></svg>
+                        <span><strong>Triage Service</strong><small>Start with a known application</small></span>
+                    </button>
+                    <button id="tracking-tab" class="mode-tab" type="button" role="tab" aria-selected="false" aria-controls="tracking-panel" data-tab-target="tracking-panel" tabindex="-1">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5v5H4V6Zm11 7h5v5h-5v-5ZM9 8.5h3a5 5 0 0 1 5 5M7 11v6h8"></path></svg>
+                        <span><strong>Trace Tracking ID</strong><small>Follow a request across services</small></span>
+                    </button>
+                </div>
+
+                <div id="service-panel" class="mode-panel" role="tabpanel" aria-labelledby="service-tab">
+                    <div class="panel-intro">
+                        <span class="step-number" aria-hidden="true">01</span>
+                        <div>
+                            <h2>Describe the service problem</h2>
+                            <p>We’ll establish the clearest failure, then work backward through runtime, deployment, configuration, and dependencies.</p>
+                        </div>
+                    </div>
+
+                    <form class="investigation-form" th:action="@{/investigations/service}" action="/investigations/service" method="post" data-submit-form>
+                        <div class="form-grid">
+                            <div class="field field--wide">
+                                <label for="service">Service</label>
+                                <input id="service" name="service" type="text" required maxlength="120" autocomplete="off" placeholder="e.g. catalog-service" th:value="${service}">
+                                <small>Canonical service name or a known alias</small>
+                            </div>
+                            <div class="field">
+                                <label for="service-environment">Environment</label>
+                                <select id="service-environment" name="environment" required>
+                                    <option value="" disabled th:selected="${environment == null}">Select</option>
+                                    <option value="DEV" th:selected="${#strings.toString(environment) == 'DEV'}">DEV</option>
+                                    <option value="TEST" th:selected="${#strings.toString(environment) == 'TEST'}">TEST</option>
+                                </select>
+                            </div>
+                            <div class="field field--full">
+                                <label for="userProblem">Problem description</label>
+                                <textarea id="userProblem" name="userProblem" required maxlength="2000" rows="5" placeholder="What is happening, and when did it start?" th:text="${userProblem}"></textarea>
+                                <div class="field-hint-row"><small>Include an error, ISO-8601 timestamp, or deployment clue if known.</small><small data-character-count="userProblem">0 / 2000</small></div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <p><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5.1 3.4 8.7 8 10 4.6-1.3 8-4.9 8-10V6l-8-3Zm0 4v10m-4-5h8"></path></svg> No systems or source files will be modified.</p>
+                            <button class="button button--primary" type="submit">
+                                <span>Triage service</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="tracking-panel" class="mode-panel" role="tabpanel" aria-labelledby="tracking-tab" hidden>
+                    <div class="panel-intro">
+                        <span class="step-number" aria-hidden="true">01</span>
+                        <div>
+                            <h2>Trace a request</h2>
+                            <p>We’ll reconstruct the chronological service chain, localize the first meaningful failure, and continue triage against that service.</p>
+                        </div>
+                    </div>
+
+                    <form class="investigation-form" th:action="@{/investigations/tracking}" action="/investigations/tracking" method="post" data-submit-form>
+                        <div class="form-grid">
+                            <div class="field field--wide">
+                                <label for="trackingId">Tracking ID</label>
+                                <input id="trackingId" name="trackingId" type="text" required maxlength="200" autocomplete="off" spellcheck="false" placeholder="e.g. DEMO-TRACE-001" th:value="${trackingId}">
+                                <small>Request, correlation, or transaction identifier</small>
+                            </div>
+                            <div class="field">
+                                <label for="tracking-environment">Environment</label>
+                                <select id="tracking-environment" name="environment" required>
+                                    <option value="" disabled th:selected="${environment == null}">Select</option>
+                                    <option value="DEV" th:selected="${#strings.toString(environment) == 'DEV'}">DEV</option>
+                                    <option value="TEST" th:selected="${#strings.toString(environment) == 'TEST'}">TEST</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <p><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5.1 3.4 8.7 8 10 4.6-1.3 8-4.9 8-10V6l-8-3Zm0 4v10m-4-5h8"></path></svg> Log evidence is bounded and sanitized before storage or analysis.</p>
+                            <button class="button button--primary" type="submit">
+                                <span>Trace request</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <section class="approach-card" aria-labelledby="approach-heading">
+                <div>
+                    <span class="approach-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 4.9 12l4.1 4 1-1-4-4.1A7 7 0 0 0 11 4Zm0 3v4l3 2"></path></svg></span>
+                    <div>
+                        <h2 id="approach-heading">Find the error first</h2>
+                        <p>The agent narrows the search with live operational evidence before inspecting configuration or code.</p>
+                    </div>
+                </div>
+                <ol aria-label="Investigation approach">
+                    <li><span>1</span> Observe</li>
+                    <li><span>2</span> Localize</li>
+                    <li><span>3</span> Correlate</li>
+                    <li><span>4</span> Diagnose</li>
+                </ol>
+            </section>
+        </div>
+    </main>
+</div>
+<div class="sidebar-scrim" data-sidebar-close hidden></div>
+</body>
+</html>

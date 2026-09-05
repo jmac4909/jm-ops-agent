@@ -1,0 +1,19 @@
+package com.jmopsagent.connector;
+
+public enum EvidenceType {
+    TRACE_EVENT,
+    WORKLOAD_HEALTH,
+    POD_EVENT,
+    APPLICATION_LOG,
+    DEPLOYMENT,
+    CONFIGURATION,
+    NETWORK,
+    BUILD,
+    SOURCE_CHANGE,
+    SOURCE_FILE,
+    ERROR_PATTERN,
+    RECENT_ACTIVITY,
+    RECENT_BUSINESS_CALLS,
+    DEPENDENCY_HEALTH,
+    RUNBOOK
+}

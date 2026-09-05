@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: head('System diagnostics')}">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>System diagnostics · JM Ops Agent</title>
+    <link rel="stylesheet" href="/css/app.css">
+    <script src="/js/app.js" defer></script>
+</head>
+<body>
+<a th:replace="~{fragments/common :: skipLink}" class="skip-link" href="#main-content">Skip to main content</a>
+
+<div class="app-shell">
+    <aside class="sidebar" id="app-sidebar" aria-label="Application sidebar">
+        <div th:replace="~{fragments/common :: sidebar(${recentInvestigations}, null)}"></div>
+    </aside>
+
+    <main class="main" id="main-content">
+        <header class="mobile-header">
+            <button class="icon-button sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+            </button>
+            <span>System diagnostics</span>
+            <a class="icon-button" th:href="@{/}" href="/" aria-label="New investigation">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            </a>
+        </header>
+
+        <div class="page-container page-container--medium">
+            <header class="page-header diagnostics-header">
+                <div>
+                    <nav class="breadcrumb" aria-label="Breadcrumb">
+                        <a th:href="@{/}" href="/">JM Ops Agent</a>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                        <span>Diagnostics</span>
+                    </nav>
+                    <p class="eyebrow">Local workstation</p>
+                    <h1>System diagnostics</h1>
+                    <p class="page-lead">Availability checks verify executables and connector configuration without displaying credentials or testing modifying operations.</p>
+                </div>
+                <a class="button button--secondary" th:href="@{/diagnostics}" href="/diagnostics">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18 9a7 7 0 0 0-12-2M6 15a7 7 0 0 0 12 2"></path></svg>
+                    Refresh checks
+                </a>
+            </header>
+
+            <div class="alert alert--error" role="alert" th:if="${error != null}">
+                <strong>Some checks could not run.</strong>
+                <span th:text="${error}">Diagnostics are partially available.</span>
+            </div>
+
+            <section class="diagnostics-summary" aria-label="Diagnostic summary" th:if="${diagnostics != null and !#maps.isEmpty(diagnostics)}">
+                <div>
+                    <span class="summary-orb" data-diagnostics-orb aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"></path></svg></span>
+                    <div><strong data-diagnostics-summary>Local capabilities checked</strong><small>No secret values are shown</small></div>
+                </div>
+                <span class="checked-time">Checked <time data-format-datetime th:if="${checkedAt != null}" th:attr="datetime=${checkedAt}" th:text="${checkedAt}">when this page loaded</time><span th:if="${checkedAt == null}">when this page loaded</span></span>
+            </section>
+
+            <section class="diagnostics-section" aria-labelledby="tools-heading">
+                <div class="section-heading">
+                    <p class="eyebrow">Runtime and integrations</p>
+                    <h2 id="tools-heading">Connection readiness</h2>
+                    <p>An unavailable live integration does not prevent the <code>local-mock</code> profile from running.</p>
+                </div>
+
+                <div class="diagnostic-grid" th:if="${diagnostics != null and !#maps.isEmpty(diagnostics)}">
+                    <article class="diagnostic-card" th:each="entry : ${diagnostics}" th:attr="data-diagnostic-status=${entry.value}">
+                        <span class="diagnostic-card-icon" aria-hidden="true">
+                            <svg class="diagnostic-ok" viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"></path></svg>
+                            <svg class="diagnostic-not-ok" viewBox="0 0 24 24"><path d="M12 8v5m0 3v.1"></path></svg>
+                        </span>
+                        <div>
+                            <h3 data-humanize th:text="${entry.key}">Claude Code</h3>
+                            <p data-diagnostic-detail th:text="${entry.value}">AVAILABLE</p>
+                        </div>
+                        <span class="diagnostic-status" th:text="${entry.value}">Available</span>
+                    </article>
+                </div>
+
+                <div class="empty-state empty-state--large" th:if="${diagnostics == null or #maps.isEmpty(diagnostics)}">
+                    <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5m0 3v.1M12 3 3 20h18L12 3Z"></path></svg></span>
+                    <h3>No diagnostic results</h3>
+                    <p>Checks have not returned a result. Refresh this page or review the application log.</p>
+                </div>
+            </section>
+
+            <section class="safety-card" aria-labelledby="diagnostic-safety-heading">
+                <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v5c0 5.1 3.4 8.7 8 10 4.6-1.3 8-4.9 8-10V6l-8-3Zm-3 9 2 2 4-5"></path></svg></span>
+                <div>
+                    <h2 id="diagnostic-safety-heading">What these checks do</h2>
+                    <p>Executable checks use bounded, non-interactive version commands. Connector checks only confirm that required configuration is present. Tokens, passwords, and credential contents are never returned.</p>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+<div class="sidebar-scrim" data-sidebar-close hidden></div>
+</body>
+</html>

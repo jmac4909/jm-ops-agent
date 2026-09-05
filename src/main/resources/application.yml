@@ -1,0 +1,121 @@
+spring:
+  application:
+    name: jm-ops-agent
+  profiles:
+    default: local-mock
+  datasource:
+    url: jdbc:h2:file:./data/jmopsagent;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  thymeleaf:
+    cache: false
+  jackson:
+    default-property-inclusion: non_null
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  address: ${JM_OPS_BIND_ADDRESS:127.0.0.1}
+  port: ${JM_OPS_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+jmops:
+  allowed-environments: DEV,TEST
+  registry:
+    location: ${JMOPS_SERVICE_REGISTRY_LOCATION:classpath:service-registry.yml}
+  limits:
+    max-claude-iterations: 3
+    max-wall-clock: 2m
+    max-evidence-items: 50
+    max-log-events: 200
+    max-splunk-searches: 5
+    max-code-files: 8
+    max-historical-incidents: 5
+    max-follow-ups: 10
+    max-follow-up-evidence-collections: 1
+    tracking-search-window: ${JMOPS_LIMITS_TRACKING_SEARCH_WINDOW:72h}
+  process:
+    default-timeout: 30s
+  sanitization:
+    include-bodies: false
+  claude:
+    executable: ${CLAUDE_EXECUTABLE:claude}
+    enabled: ${CLAUDE_ENABLED:true}
+    timeout: ${CLAUDE_TIMEOUT:2m}
+    model: ${CLAUDE_MODEL:}
+    structured-output-mode: ${JMOPS_CLAUDE_STRUCTURED_OUTPUT_MODE:AUTO}
+    max-turns-per-invocation: ${JMOPS_CLAUDE_MAX_TURNS_PER_INVOCATION:1}
+  kubernetes:
+    executable: ${KUBECTL_EXECUTABLE:kubectl}
+    dev-context: ${KUBERNETES_DEV_CONTEXT:}
+    test-context: ${KUBERNETES_TEST_CONTEXT:}
+    dev-namespace: ${KUBERNETES_DEV_NAMESPACE:}
+    test-namespace: ${KUBERNETES_TEST_NAMESPACE:}
+  tas:
+    executable: ${CF_EXECUTABLE:cf}
+    app-pattern: ${JMOPS_TAS_APP_PATTERN:}
+    dev-api: ${CF_DEV_API:}
+    dev-org: ${CF_DEV_ORG:}
+    dev-space: ${CF_DEV_SPACE:}
+    dev-home: ${CF_DEV_HOME:}
+    test-api: ${CF_TEST_API:}
+    test-org: ${CF_TEST_ORG:}
+    test-space: ${CF_TEST_SPACE:}
+    test-home: ${CF_TEST_HOME:}
+    targets: {}
+    environment-metadata-enabled: ${JMOPS_TAS_ENVIRONMENT_METADATA_ENABLED:false}
+  git:
+    executable: ${JMOPS_GIT_EXECUTABLE:git}
+  integrations:
+    gitlab:
+      base-url: ${GITLAB_BASE_URL:}
+      token: ${GITLAB_TOKEN:}
+    jenkins:
+      base-url: ${JENKINS_BASE_URL:}
+      username: ${JENKINS_USERNAME:}
+      token: ${JENKINS_TOKEN:}
+      job-pattern: ${JMOPS_INTEGRATIONS_JENKINS_JOB_PATTERN:}
+      controllers: {}
+    splunk:
+      base-url: ${SPLUNK_BASE_URL:}
+      auth-mode: ${SPLUNK_AUTH_MODE:BEARER_TOKEN}
+      token: ${SPLUNK_TOKEN:}
+      session-cookie: ${SPLUNK_SESSION_COOKIE:}
+      form-key: ${SPLUNK_FORM_KEY:}
+      dev-indexes: ${SPLUNK_DEV_INDEXES:}
+      test-indexes: ${SPLUNK_TEST_INDEXES:}
+      dev-gateway-indexes: ${SPLUNK_DEV_GATEWAY_INDEXES:}
+      test-gateway-indexes: ${SPLUNK_TEST_GATEWAY_INDEXES:}
+      request-timeout: ${SPLUNK_REQUEST_TIMEOUT:45s}
+      field-profiles: []
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local-mock
+  datasource:
+    url: jdbc:h2:file:./data/jmopsagent-mock;AUTO_SERVER=TRUE
+
+jmops:
+  mode: MOCK
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local-live
+
+jmops:
+  mode: LIVE

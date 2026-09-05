@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:jmopsagent-test;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+jmops:
+  mode: MOCK
+  claude:
+    enabled: false

@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: head('Investigation')}">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Investigation · JM Ops Agent</title>
+    <link rel="stylesheet" href="/css/app.css">
+    <script src="/js/app.js" defer></script>
+</head>
+<body>
+<a th:replace="~{fragments/common :: skipLink}" class="skip-link" href="#main-content">Skip to main content</a>
+
+<div class="app-shell">
+    <aside class="sidebar" id="app-sidebar" aria-label="Application sidebar">
+        <div th:replace="~{fragments/common :: sidebar(${recentInvestigations}, ${investigation != null ? investigation.id : null})}"></div>
+    </aside>
+
+    <main class="main" id="main-content"
+          th:attr="data-investigation-status=${investigation != null ? investigation.status : 'UNKNOWN'},data-refresh-url=${investigation != null ? '/investigations/' + investigation.id : ''}">
+        <header class="mobile-header">
+            <button class="icon-button sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+            </button>
+            <span>Investigation</span>
+            <a class="icon-button" th:href="@{/}" href="/" aria-label="New investigation">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            </a>
+        </header>
+
+        <div class="page-container" th:if="${investigation != null}">
+            <header class="investigation-header">
+                <div>
+                    <nav class="breadcrumb" aria-label="Breadcrumb">
+                        <a th:href="@{/}" href="/">Investigations</a>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                        <span th:text="${investigation.id != null ? '#' + investigation.id : 'Current'}">#42</span>
+                    </nav>
+                    <div class="title-row">
+                        <h1 th:if="${investigation.service != null and !#strings.isEmpty(investigation.service)}" th:text="${investigation.service}">catalog-service</h1>
+                        <h1 th:if="${investigation.service == null or #strings.isEmpty(investigation.service)}">Tracking ID investigation</h1>
+                        <span class="env-badge env-badge--large" th:text="${investigation.environment}">TEST</span>
+                        <span th:replace="~{fragments/common :: statusBadge(${investigation.status})}">ANALYZING</span>
+                    </div>
+                    <p class="investigation-question" th:if="${investigation.userProblem != null and !#strings.isEmpty(investigation.userProblem)}" th:text="${investigation.userProblem}">Catalog Service is returning 500s after the latest deployment.</p>
+                    <p class="investigation-question" th:if="${investigation.trackingId != null and !#strings.isEmpty(investigation.trackingId)}">Tracking ID <code th:text="${investigation.trackingId}">DEMO-TRACE-001</code></p>
+                </div>
+                <div class="header-actions">
+                    <a class="button button--secondary" th:href="@{/}" href="/">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                        New investigation
+                    </a>
+                </div>
+            </header>
+
+            <div class="alert alert--error" role="alert" th:if="${error != null}">
+                <strong>Request could not be completed.</strong>
+                <span th:text="${error}">The investigation remains unchanged.</span>
+            </div>
+            <div class="alert alert--success" role="status" th:if="${notice != null}">
+                <span th:text="${notice}">Feedback saved.</span>
+            </div>
+
+            <section class="progress-card" aria-labelledby="progress-heading">
+                <div class="section-heading section-heading--inline">
+                    <div>
+                        <p class="eyebrow">Investigation progress</p>
+                        <h2 id="progress-heading">Following the evidence</h2>
+                    </div>
+                    <div class="refresh-state" aria-live="polite">
+                        <span class="pulse" aria-hidden="true"></span>
+                        <span data-refresh-label>Current status</span>
+                    </div>
+                </div>
+                <ol class="progress-rail" th:attr="data-current-status=${investigation.status}">
+                    <li data-stage="DISCOVERING">
+                        <span class="progress-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg></span>
+                        <span><strong>Service resolved</strong><small>Registry and aliases</small></span>
+                    </li>
+                    <li data-stage="COLLECTING_EVIDENCE">
+                        <span class="progress-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg></span>
+                        <span><strong>Evidence collected</strong><small>Runtime, logs, deployment</small></span>
+                    </li>
+                    <li data-stage="ANALYZING">
+                        <span class="progress-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg></span>
+                        <span><strong>Evidence analyzed</strong><small>Correlation and hypotheses</small></span>
+                    </li>
+                    <li data-stage="COMPLETED">
+                        <span class="progress-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg></span>
+                        <span><strong>Diagnosis prepared</strong><small>Supported next actions</small></span>
+                    </li>
+                </ol>
+                <p class="progress-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5.1 3.4 8.7 8 10 4.6-1.3 8-4.9 8-10V6l-8-3Z"></path></svg> Only evidence collection activity is shown. Internal model reasoning is never displayed.</p>
+            </section>
+
+            <div class="content-grid">
+                <div class="content-primary">
+                    <section class="diagnosis-card" aria-labelledby="diagnosis-heading" th:if="${investigation.finalDiagnosis != null and !#strings.isEmpty(investigation.finalDiagnosis)}">
+                        <div class="diagnosis-accent" aria-hidden="true"></div>
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p class="eyebrow">Diagnosis</p>
+                                <h2 id="diagnosis-heading">Likely root cause</h2>
+                            </div>
+                            <div class="diagnosis-badges">
+                                <span class="category-badge" th:if="${investigation.rootCauseCategory != null}" th:text="${#strings.replace(investigation.rootCauseCategory, '_', ' ')}">CONFIG</span>
+                                <span class="confidence-badge" th:if="${investigation.confidence != null}" th:attr="data-confidence=${investigation.confidence}"><span data-confidence-label th:text="${investigation.confidence}">HIGH</span> confidence</span>
+                            </div>
+                        </div>
+                        <div class="diagnosis-copy" th:text="${investigation.finalDiagnosis}">The deployed service is reading an invalid Parameter Store path, preventing readiness and causing requests to fail.</div>
+                        <dl class="diagnosis-meta">
+                            <div>
+                                <dt>Started</dt>
+                                <dd><time data-format-datetime th:attr="datetime=${investigation.startedAt}" th:text="${investigation.startedAt}">2026-09-04T10:40:00Z</time></dd>
+                            </div>
+                            <div th:if="${investigation.completedAt != null}">
+                                <dt>Completed</dt>
+                                <dd><time data-format-datetime th:attr="datetime=${investigation.completedAt}" th:text="${investigation.completedAt}">2026-09-04T10:41:00Z</time></dd>
+                            </div>
+                            <div th:if="${investigation.claudeSessionId != null and !#strings.isEmpty(investigation.claudeSessionId)}">
+                                <dt>Reasoning session</dt>
+                                <dd><code th:text="${investigation.claudeSessionId}">session-id</code></dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <section class="working-card" aria-labelledby="working-heading" th:if="${investigation.finalDiagnosis == null or #strings.isEmpty(investigation.finalDiagnosis)}">
+                        <div class="working-visual" aria-hidden="true"><span></span><span></span><span></span></div>
+                        <div>
+                            <p class="eyebrow">Analysis in progress</p>
+                            <h2 id="working-heading" th:text="${#strings.toString(investigation.status) == 'FAILED' ? 'Investigation stopped' : 'Building an evidence-backed diagnosis'}">Building an evidence-backed diagnosis</h2>
+                            <p th:if="${#strings.toString(investigation.status) != 'FAILED'}">This view refreshes while the agent gathers bounded, sanitized evidence. You can leave and return from Recent investigations.</p>
+                            <p th:if="${#strings.toString(investigation.status) == 'FAILED'}">The investigation could not complete. Evidence collected before the failure remains available below.</p>
+                            <p class="failure-detail" th:if="${#strings.toString(investigation.status) == 'FAILED' and investigation.failureReason != null}" th:text="${investigation.failureReason}">A connector timed out before enough evidence could be collected.</p>
+                        </div>
+                    </section>
+
+                    <section class="section-card" aria-labelledby="chain-heading" th:if="${serviceChain != null and !#lists.isEmpty(serviceChain)}">
+                        <div class="section-heading">
+                            <p class="eyebrow">Failure path</p>
+                            <h2 id="chain-heading">Request service chain</h2>
+                            <p>The first meaningful failure is highlighted.</p>
+                        </div>
+                        <ol class="service-chain">
+                            <li th:each="node, nodeStat : ${serviceChain}" th:attr="data-chain-status=${node.status}">
+                                <div class="chain-node">
+                                    <span class="chain-status" aria-hidden="true">
+                                        <svg class="chain-success" viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"></path></svg>
+                                        <svg class="chain-failure" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg>
+                                        <svg class="chain-unknown" viewBox="0 0 24 24"><path d="M12 8v5m0 3v.1"></path></svg>
+                                    </span>
+                                    <span class="chain-copy">
+                                        <strong th:text="${node.service}">Edge Gateway</strong>
+                                        <small th:if="${node.detail != null}" th:text="${node.detail}">Request completed</small>
+                                    </span>
+                                    <span class="http-status" th:if="${node.statusCode != null}" th:text="${node.statusCode}">200</span>
+                                    <span class="chain-result" th:text="${node.status != null ? #strings.replace(node.status, '_', ' ') : 'OBSERVED'}">SUCCESS</span>
+                                </div>
+                                <svg class="chain-arrow" th:if="${!nodeStat.last}" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15m-5-5 5 5 5-5"></path></svg>
+                            </li>
+                        </ol>
+                    </section>
+
+                    <section class="section-card" aria-labelledby="evidence-heading">
+                        <div class="section-heading section-heading--inline">
+                            <div>
+                                <p class="eyebrow">Evidence</p>
+                                <h2 id="evidence-heading">What supports this conclusion</h2>
+                            </div>
+                            <span class="item-count" th:if="${evidenceItems != null}" th:text="${#lists.size(evidenceItems)} + ' items'">4 items</span>
+                        </div>
+
+                        <div class="evidence-list" th:if="${evidenceItems != null and !#lists.isEmpty(evidenceItems)}">
+                            <article class="evidence-item" th:each="item : ${evidenceItems}">
+                                <div class="evidence-source" th:attr="data-source=${item.sourceSystem}">
+                                    <span class="source-icon" aria-hidden="true" th:text="${item.sourceSystem != null ? #strings.substring(#strings.toString(item.sourceSystem), 0, 1) : '?'}">S</span>
+                                    <span>
+                                        <strong th:text="${item.sourceSystem != null ? #strings.replace(item.sourceSystem, '_', ' ') : 'Evidence'}">SPLUNK</strong>
+                                        <small th:text="${item.evidenceType != null ? #strings.replace(item.evidenceType, '_', ' ') : 'Observation'}">ERROR PATTERN</small>
+                                    </span>
+                                    <span class="reliability" th:if="${item.reliability != null}" th:text="${item.reliability}">HIGH</span>
+                                </div>
+                                <div class="evidence-body">
+                                    <div class="evidence-title-row">
+                                        <h3 th:text="${item.summary}">Readiness probe failed after deployment</h3>
+                                        <time data-format-datetime th:if="${item.occurredAt != null}" th:attr="datetime=${item.occurredAt}" th:text="${item.occurredAt}">10:40</time>
+                                    </div>
+                                    <pre th:if="${item.sanitizedContent != null and !#strings.isEmpty(item.sanitizedContent)}"><code th:text="${item.sanitizedContent}">Could not resolve parameter [REDACTED]</code></pre>
+                                    <div class="evidence-footer">
+                                        <span class="redaction-label" th:if="${item.redactionApplied}">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2m-9 0h8v9H8v-9Z"></path></svg>
+                                            Sensitive values redacted
+                                        </span>
+                                        <span class="truncation-label" th:if="${item.contentTruncated}">Bounded sample · content truncated</span>
+                                        <span class="collected-time" th:if="${item.collectedAt != null}">Collected <time data-format-datetime th:attr="datetime=${item.collectedAt}" th:text="${item.collectedAt}">moments ago</time></span>
+                                        <a class="source-link" th:if="${item.sourceUrl != null and (#strings.startsWith(item.sourceUrl, 'https://') or #strings.startsWith(item.sourceUrl, 'http://'))}" th:href="${item.sourceUrl}" href="#" target="_blank" rel="noopener noreferrer">
+                                            Open source
+                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5m0-5-8 8M19 14v5H5V5h5"></path></svg>
+                                        </a>
+                                    </div>
+                                    <details class="metadata" th:if="${item.metadataJson != null and !#strings.isEmpty(item.metadataJson)}">
+                                        <summary>Collection metadata</summary>
+                                        <pre><code th:text="${item.metadataJson}">{"count":14,"window":"10m"}</code></pre>
+                                    </details>
+                                </div>
+                            </article>
+                        </div>
+                        <div class="empty-state" th:if="${evidenceItems == null or #lists.isEmpty(evidenceItems)}">
+                            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 4.9 12l4.1 4 1-1-4-4.1A7 7 0 0 0 11 4Z"></path></svg></span>
+                            <h3>Waiting for evidence</h3>
+                            <p>Collected observations will appear here as they become available.</p>
+                        </div>
+                    </section>
+
+                    <section class="section-card" aria-labelledby="timeline-heading" th:if="${timeline != null and !#lists.isEmpty(timeline)}">
+                        <div class="section-heading">
+                            <p class="eyebrow">Timeline</p>
+                            <h2 id="timeline-heading">Correlated events</h2>
+                        </div>
+                        <ol class="event-timeline">
+                            <li th:each="event : ${timeline}">
+                                <span class="event-dot" aria-hidden="true"></span>
+                                <time data-format-datetime th:attr="datetime=${event.occurredAt}" th:text="${event.occurredAt}">10:37</time>
+                                <div>
+                                    <h3 th:text="${event.message}">Deployment completed</h3>
+                                    <span class="event-source" th:text="${event.status != null ? #strings.replace(event.status, '_', ' ') : #strings.replace(event.type, '_', ' ')}">JENKINS</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </section>
+
+                    <section class="section-card conversation-card" aria-labelledby="follow-up-heading" th:if="${#strings.toString(investigation.status) == 'COMPLETED'}">
+                        <div class="section-heading">
+                            <p class="eyebrow">Follow-up</p>
+                            <h2 id="follow-up-heading">Ask about this investigation</h2>
+                            <p>Questions use the stored, sanitized evidence and can resume the reasoning session when available.</p>
+                        </div>
+                        <div class="conversation" th:if="${followUps != null and !#lists.isEmpty(followUps)}">
+                            <article th:each="followUp : ${followUps}">
+                                <div class="message message--user">
+                                    <span>You</span>
+                                    <p th:text="${followUp.question}">Why do you think this is configuration?</p>
+                                </div>
+                                <div class="message message--agent" th:if="${followUp.answer != null}">
+                                    <span>JM Ops Agent</span>
+                                    <p th:text="${followUp.answer}">The timing and runtime evidence support that conclusion.</p>
+                                </div>
+                            </article>
+                        </div>
+                        <form class="follow-up-form" th:action="@{/investigations/{id}/follow-ups(id=${investigation.id})}" action="/investigations/1/follow-ups" method="post" data-submit-form>
+                            <label class="sr-only" for="question">Follow-up question</label>
+                            <textarea id="question" name="question" required maxlength="1500" rows="2" placeholder="Ask why, compare evidence, or check historical incidents…"></textarea>
+                            <button class="button button--primary" type="submit">
+                                <span>Ask</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Zm7 2 3-3"></path></svg>
+                            </button>
+                        </form>
+                    </section>
+                </div>
+
+                <aside class="content-rail" aria-label="Investigation actions and summary">
+                    <section class="rail-card next-action-card" aria-labelledby="next-actions-heading" th:if="${investigation.recommendedActions != null and !#lists.isEmpty(investigation.recommendedActions)}">
+                        <div class="rail-icon rail-icon--action" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"></path></svg></div>
+                        <p class="eyebrow">Recommended next action</p>
+                        <h2 id="next-actions-heading">What to do next</h2>
+                        <ol class="recommendation-list">
+                            <li th:each="action, actionStat : ${investigation.recommendedActions}">
+                                <span th:text="${actionStat.count}">1</span>
+                                <p th:text="${action}">Verify the configured Parameter Store path in TEST.</p>
+                            </li>
+                        </ol>
+                        <p class="read-only-reminder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2m-9 0h8v9H8v-9Z"></path></svg> Recommendations are advisory. No action was executed.</p>
+                    </section>
+
+                    <section class="rail-card" aria-labelledby="source-actions-heading" th:if="${evidenceItems != null and !#lists.isEmpty(evidenceItems)}">
+                        <div class="rail-heading">
+                            <h2 id="source-actions-heading">Source links</h2>
+                            <small>Opens externally</small>
+                        </div>
+                        <div class="source-actions">
+                            <a th:each="item : ${evidenceItems}" th:if="${item.sourceUrl != null and (#strings.startsWith(item.sourceUrl, 'https://') or #strings.startsWith(item.sourceUrl, 'http://'))}" th:href="${item.sourceUrl}" th:attr="data-source-action=${item.sourceSystem}" href="#" target="_blank" rel="noopener noreferrer">
+                                <span class="source-action-icon" th:attr="data-source=${item.sourceSystem}" th:text="${item.sourceSystem != null ? #strings.substring(#strings.toString(item.sourceSystem), 0, 1) : '?'}">J</span>
+                                <span><strong th:text="${item.sourceSystem != null ? 'Open ' + #strings.capitalize(#strings.toLowerCase(#strings.toString(item.sourceSystem))) : 'Open source'}">Open Jenkins</strong><small th:text="${item.summary}">Latest deployment</small></span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5m0-5-8 8M19 14v5H5V5h5"></path></svg>
+                            </a>
+                        </div>
+                    </section>
+
+                    <section class="rail-card code-card" aria-labelledby="code-heading" th:if="${#strings.toString(investigation.status) == 'COMPLETED' and investigation.service != null and !#strings.isEmpty(investigation.service) and (#strings.toString(investigation.rootCauseCategory) == 'CODE' or #strings.toString(investigation.rootCauseCategory) == 'UNKNOWN')}">
+                        <div class="rail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 9-4 3 4 3m8-6 4 3-4 3m-2-9-4 12"></path></svg></div>
+                        <h2 id="code-heading">Need source-level detail?</h2>
+                        <p>Inspect only the deployed revision and code paths identified by operational evidence.</p>
+                        <form th:action="@{/investigations/{id}/code(id=${investigation.id})}" action="/investigations/1/code" method="post" data-submit-form>
+                            <button class="button button--secondary button--full" type="submit">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18 3 12l6-6m6 0 6 6-6 6m-2-14-2 16"></path></svg>
+                                Investigate Code
+                            </button>
+                        </form>
+                        <small>Read-only · no checkout modification or commits</small>
+                    </section>
+
+                    <section class="rail-card feedback-card" aria-labelledby="feedback-heading" th:if="${#strings.toString(investigation.status) == 'COMPLETED'}">
+                        <div class="rail-heading">
+                            <div>
+                                <p class="eyebrow">Improve history</p>
+                                <h2 id="feedback-heading">Was this diagnosis correct?</h2>
+                            </div>
+                        </div>
+                        <form th:action="@{/investigations/{id}/feedback(id=${investigation.id})}" action="/investigations/1/feedback" method="post" data-feedback-form data-submit-form>
+                            <fieldset class="feedback-options">
+                                <legend class="sr-only">Diagnosis correctness</legend>
+                                <label><input type="radio" name="userFeedback" value="YES" required th:checked="${#strings.toString(investigation.userFeedback) == 'YES'}"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 12 4 4 8-8"></path></svg>Yes</span></label>
+                                <label><input type="radio" name="userFeedback" value="PARTIALLY" required th:checked="${#strings.toString(investigation.userFeedback) == 'PARTIALLY'}"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg>Partially</span></label>
+                                <label><input type="radio" name="userFeedback" value="NO" required th:checked="${#strings.toString(investigation.userFeedback) == 'NO'}"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"></path></svg>No</span></label>
+                            </fieldset>
+                            <div class="feedback-details" data-feedback-details hidden>
+                                <div class="field">
+                                    <label for="actualRootCause">Actual root cause</label>
+                                    <textarea id="actualRootCause" name="actualRootCause" maxlength="2000" rows="3" placeholder="What was the actual cause?" th:text="${investigation.actualRootCause}"></textarea>
+                                </div>
+                                <div class="field">
+                                    <label for="successfulRemediation">What fixed it? <span>(optional)</span></label>
+                                    <textarea id="successfulRemediation" name="successfulRemediation" maxlength="2000" rows="3" placeholder="Describe the successful remediation." th:text="${investigation.successfulRemediation}"></textarea>
+                                </div>
+                            </div>
+                            <button class="button button--primary button--full" type="submit">Save feedback</button>
+                        </form>
+                    </section>
+                </aside>
+            </div>
+        </div>
+
+        <div class="page-container page-container--narrow" th:if="${investigation == null}">
+            <section class="not-found-card">
+                <span aria-hidden="true">?</span>
+                <h1>Investigation unavailable</h1>
+                <p>The requested investigation could not be loaded or no longer exists.</p>
+                <a class="button button--primary" th:href="@{/}" href="/">Start a new investigation</a>
+            </section>
+        </div>
+    </main>
+</div>
+<div class="sidebar-scrim" data-sidebar-close hidden></div>
+</body>
+</html>

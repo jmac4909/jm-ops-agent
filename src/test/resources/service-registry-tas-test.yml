@@ -1,0 +1,21 @@
+services:
+  - service: demo-tas-service
+    runtime:
+      platform:
+        DEV: TAS
+        TEST: TAS
+    tas:
+      appPattern: demo-tas-service-{environment}
+    jenkins:
+      job: demo/demo-tas-service/deploy
+      controller: demo-controller
+    splunk:
+      appNames:
+        DEV: demo-tas-service-dev
+        TEST: demo-tas-service-test
+      fieldProfiles:
+        DEV: structured-application
+        TEST: structured-application
+      indexes:
+        apigee: demo_gateway_events
+        tas: demo_platform_events
