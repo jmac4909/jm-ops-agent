@@ -1,0 +1,102 @@
+services:
+  - service: edge-gateway
+    runtime:
+      platform:
+        DEV: EKS
+        TEST: EKS
+    aliases:
+      - demo-edge-gateway-dev
+      - demo-edge-gateway-test
+      - demo-public-api-gateway
+    gitlab:
+      repository: https://gitlab.example.invalid/demo/edge-gateway
+    tasBranches:
+      - demo-develop
+    eksBranches:
+      - demo-develop-eks
+    eks:
+      namespace:
+        DEV: demo-edge-gateway-dev
+        TEST: demo-edge-gateway-test
+      deployment: demo-edge-gateway
+      service: demo-edge-gateway
+    tas:
+      appPattern: demo-edge-gateway-{environment}
+    jenkins:
+      job: demo/edge-gateway/deploy
+    splunk:
+      indexes:
+        apigee: demo_gateway_events
+        eks: demo_container_events
+        tas: demo_platform_events
+    health:
+      readinessPath: /actuator/health/readiness
+      livenessPath: /actuator/health/liveness
+
+  - service: identity-service
+    runtime:
+      platform:
+        DEV: EKS
+        TEST: EKS
+    aliases:
+      - demo-identity-service-dev
+      - demo-identity-service-test
+      - demo-identity-api
+    gitlab:
+      repository: https://gitlab.example.invalid/demo/identity-service
+    tasBranches:
+      - demo-develop
+    eksBranches:
+      - demo-develop-eks
+    eks:
+      namespace:
+        DEV: demo-identity-service-dev
+        TEST: demo-identity-service-test
+      deployment: demo-identity-service
+      service: demo-identity-service
+    tas:
+      appPattern: demo-identity-service-{environment}
+    jenkins:
+      job: demo/identity-service/deploy
+    splunk:
+      indexes:
+        apigee: demo_gateway_events
+        eks: demo_container_events
+        tas: demo_platform_events
+    health:
+      readinessPath: /actuator/health/readiness
+      livenessPath: /actuator/health/liveness
+
+  - service: catalog-service
+    runtime:
+      platform:
+        DEV: EKS
+        TEST: EKS
+    aliases:
+      - demo-catalog-service-dev
+      - demo-catalog-service-test
+      - demo-catalog-api
+    gitlab:
+      repository: https://gitlab.example.invalid/demo/catalog-service
+    tasBranches:
+      - demo-develop
+    eksBranches:
+      - demo-develop-eks
+    eks:
+      namespace:
+        DEV: demo-catalog-service-dev
+        TEST: demo-catalog-service-test
+      deployment: demo-catalog-service
+      service: demo-catalog-service
+    tas:
+      appPattern: demo-catalog-service-{environment}
+    jenkins:
+      job: demo/catalog-service/deploy
+    splunk:
+      indexes:
+        apigee: demo_gateway_events
+        eks: demo_container_events
+        tas: demo_platform_events
+    health:
+      readinessPath: /actuator/health/readiness
+      livenessPath: /actuator/health/liveness

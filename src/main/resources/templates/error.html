@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: head('Something went wrong')}">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Something went wrong · JM Ops Agent</title>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="error-page">
+<main id="main-content" class="error-container">
+    <a class="brand brand--dark" th:href="@{/}" href="/">
+        <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32"><path d="M7.5 21.8V10.2L16 5.3l8.5 4.9v11.6L16 26.7z"></path><path d="m11.2 17 3.1 3.1 6.8-7.3"></path></svg>
+        </span>
+        <span><strong>JM Ops Agent</strong><small>Operational triage</small></span>
+    </a>
+    <section class="not-found-card">
+        <span aria-hidden="true">!</span>
+        <p class="eyebrow">Request error</p>
+        <h1>Something interrupted the investigation</h1>
+        <p th:text="${message != null and !#strings.isEmpty(message) ? message : 'The request could not be completed. No modifying action was taken.'}">The request could not be completed. No modifying action was taken.</p>
+        <div class="button-row">
+            <a class="button button--primary" th:href="@{/}" href="/">Return home</a>
+            <a class="button button--secondary" th:href="@{/diagnostics}" href="/diagnostics">Open diagnostics</a>
+        </div>
+        <small th:if="${status != null}">HTTP <span th:text="${status}">500</span><span th:if="${error != null}"> · <span th:text="${error}">Internal Server Error</span></span></small>
+    </section>
+</main>
+</body>
+</html>
