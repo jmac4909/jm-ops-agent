@@ -71,7 +71,7 @@ public class DeterministicClaudeCodeClient implements ClaudeCodeClient {
                     List.of(new Hypothesis("Application-level defect in the failing request path", 0.68,
                             matchingIds(request, "500", "exception", "error"))),
                     List.of(), RootCauseCategory.CODE,
-                    List.of("Use Investigate Code to inspect the deployed SHA without modifying the repository."));
+                    List.of("Inspect the relevant source at the validated deployed revision to explain the failure."));
         } else {
             decision = new ReasoningDecision(ReasoningStatus.NEEDS_MORE_EVIDENCE,
                     "The available evidence does not contain a sufficiently specific failure signature.",

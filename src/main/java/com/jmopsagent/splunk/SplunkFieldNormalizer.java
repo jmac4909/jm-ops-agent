@@ -21,6 +21,18 @@ final class SplunkFieldNormalizer {
 
     String pipeline(List<String> selectedProfileNames) {
         StringBuilder spl = new StringBuilder();
+        spl.append(" | spath path=msg output=jmops_raw_msg")
+                .append(" | eval jmops_text=coalesce(nullif(trim('message'),\"\"),")
+                .append("nullif(trim('msg'),\"\"),nullif(trim('jmops_raw_msg'),\"\"),'_raw')");
+        for (SplunkCanonicalField field : SplunkCanonicalField.values()) {
+            String pattern = SplunkTextFallback.PATTERNS.get(field);
+            if (pattern == null) continue;
+            String output = "jmops_text_" + field.outputName();
+            spl.append(" | rex field=jmops_text \"")
+                    .append(pattern.replace("?<value>", "?<" + output + ">")
+                            .replace("\\", "\\\\").replace("\"", "\\\""))
+                    .append('"');
+        }
         Map<SplunkCanonicalField, List<String>> profileOutputs = new EnumMap<>(SplunkCanonicalField.class);
         List<String> selected = selectedProfileNames == null ? List.of() : selectedProfileNames;
         if (selected.stream().distinct().count() != selected.size()
@@ -29,11 +41,6 @@ final class SplunkFieldNormalizer {
         }
         for (SplunkFieldProfile.Validated profile : profiles) {
             if (!selected.contains(profile.name())) continue;
-            String textTrackingId = "jmops_rex_" + profile.index() + "_tracking_id";
-            if (profile.trackingIdExtraction() == SplunkTrackingIdExtraction.PREFIXED_TEXT) {
-                spl.append(" | rex field=_raw \"(?i)X-TrackingId[_=](?<")
-                        .append(textTrackingId).append(">[^\\s,\\\"]+)\"");
-            }
             EnumSet<SplunkCanonicalField> outputs = profile.fields().isEmpty()
                     ? EnumSet.noneOf(SplunkCanonicalField.class)
                     : EnumSet.copyOf(profile.fields().keySet());
@@ -56,7 +63,7 @@ final class SplunkFieldNormalizer {
                 }
                 if (canonical == SplunkCanonicalField.TRACKING_ID
                         && profile.trackingIdExtraction() == SplunkTrackingIdExtraction.PREFIXED_TEXT) {
-                    values.add(quotedField(textTrackingId));
+                    values.add("'jmops_text_trackingId'");
                 }
                 String profileOutput = "jmops_profile_" + profile.index() + "_"
                         + canonical.name().toLowerCase(java.util.Locale.ROOT);
@@ -74,8 +81,11 @@ final class SplunkFieldNormalizer {
 
         for (SplunkCanonicalField canonical : SplunkCanonicalField.values()) {
             List<String> sources = new ArrayList<>();
-            canonical.defaultPaths().forEach(path -> sources.add(quotedField(path)));
-            sources.addAll(profileOutputs.getOrDefault(canonical, List.of()));
+            canonical.defaultPaths().forEach(path -> sources.add("nullif(trim(" + quotedField(path) + "),\"\")"));
+            profileOutputs.getOrDefault(canonical, List.of())
+                    .forEach(output -> sources.add("nullif(trim(" + output + "),\"\")"));
+            if (canonical == SplunkCanonicalField.MESSAGE) sources.add("'jmops_text'");
+            if (SplunkTextFallback.PATTERNS.containsKey(canonical)) sources.add("'jmops_text_" + canonical.outputName() + "'");
             spl.append(" | eval ").append(canonical.outputName()).append('=').append(coalesce(sources));
         }
         return spl.toString();
@@ -94,7 +104,7 @@ final class SplunkFieldNormalizer {
                 if (!value.isBlank()) return value;
             }
         }
-        return "";
+        return SplunkTextFallback.value(result, canonical);
     }
 
     private static String valueAt(JsonNode root, String path) {
@@ -128,24 +138,18 @@ final class SplunkFieldNormalizer {
         List<String> selected = selectedProfileNames == null ? List.of() : selectedProfileNames;
         List<SplunkFieldProfile.Validated> selectedProfiles = profiles.stream()
                 .filter(profile -> selected.contains(profile.name())).toList();
-        if (selectedProfiles.size() != selected.stream().distinct().count()) {
+        if (selectedProfiles.size() != selected.size()) {
             throw new IllegalArgumentException("Unknown or duplicate Splunk field profile selection");
         }
-        List<String> trackingMarkers = new ArrayList<>();
-        List<String> statusMarkers = new ArrayList<>();
+        List<String> trackingMarkers = new ArrayList<>(List.of("X-TrackingId"));
+        List<String> statusMarkers = new ArrayList<>(List.of("statusCode"));
         for (SplunkFieldProfile.Validated profile : selectedProfiles) {
-            if (profile.trackingIdExtraction() == SplunkTrackingIdExtraction.PREFIXED_TEXT) {
-                trackingMarkers.add("X-TrackingId");
-            }
             profile.fields().getOrDefault(SplunkCanonicalField.TRACKING_ID, List.of()).stream()
                     .map(SplunkFieldNormalizer::lastPathSegment).forEach(trackingMarkers::add);
             profile.fields().getOrDefault(SplunkCanonicalField.HTTP_STATUS, List.of()).stream()
                     .map(SplunkFieldNormalizer::lastPathSegment).forEach(statusMarkers::add);
         }
-        if (trackingMarkers.isEmpty()) trackingMarkers.add("X-TrackingId");
-        if (selectedProfiles.isEmpty() && statusMarkers.isEmpty()) statusMarkers.add("statusCode");
-        String tracking = rawTerms(trackingMarkers);
-        return statusMarkers.isEmpty() ? tracking : tracking + " " + rawTerms(statusMarkers);
+        return rawTerms(trackingMarkers) + " " + rawTerms(statusMarkers);
     }
 
     private static String rawTerms(List<String> terms) {

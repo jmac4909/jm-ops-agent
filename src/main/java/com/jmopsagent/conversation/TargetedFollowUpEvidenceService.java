@@ -27,8 +27,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Performs the one supported live follow-up refresh. It deliberately exposes no generic connector dispatch:
- * an explicit recent-requests question can collect one bounded, read-only traffic sample for the localized service.
+ * Collects a bounded traffic sample before reasoning when a follow-up asks for requests or calls.
+ * Other evidence requests use the shared orchestration dispatcher.
  */
 @Service
 public class TargetedFollowUpEvidenceService {
@@ -60,13 +60,13 @@ public class TargetedFollowUpEvidenceService {
         this.limits = limits;
     }
 
-    public CollectionResult collectRecentBusinessCalls(Investigation supplied) {
+    public CollectionResult collectRecentBusinessCalls(Investigation supplied, com.jmopsagent.orchestration.EvidenceCollectionBudget budget) {
         Investigation investigation = state.snapshotWithEvidence(supplied.getId());
         String service = investigation.getService();
         if (service == null || service.isBlank()) {
             return CollectionResult.skipped("No localized service is available for a targeted refresh");
         }
-        int remaining = limits.getMaxEvidenceItems() - investigation.getEvidenceItems().size();
+        int remaining = budget.evidenceItems() - investigation.getEvidenceItems().size();
         if (remaining <= 0) {
             state.note(investigation.getId(), InvestigationEventType.LIMIT_REACHED,
                     "Skipped the targeted follow-up refresh because the evidence-item limit was reached");
@@ -74,30 +74,40 @@ public class TargetedFollowUpEvidenceService {
         }
 
         int maximumItems = Math.min(Math.min(MAX_RECENT_ITEMS, limits.getMaxLogEvents()), remaining);
+        if (investigation.isRetrospective() && !usesTas(service, investigation.getEnvironment())) {
+            return CollectionResult.skipped("Historical Kubernetes log coverage is unavailable; current pod logs cannot reconstruct the incident");
+        }
         Instant end = Instant.now();
-        EvidenceQuery query = new EvidenceQuery(end.minus(RECENT_WINDOW), end, maximumItems,
+        EvidenceQuery query = investigation.isRetrospective()
+                ? new EvidenceQuery(investigation.getIncidentStart(), investigation.getIncidentEnd(), maximumItems,
+                        MAX_RECENT_CONTENT_CHARACTERS)
+                : new EvidenceQuery(end.minus(usesTas(service, investigation.getEnvironment())
+                ? limits.getTrackingSearchWindow() : RECENT_WINDOW), end, maximumItems,
                 MAX_RECENT_CONTENT_CHARACTERS);
         Environment environment = Environment.valueOf(investigation.getEnvironment().name());
 
         state.note(investigation.getId(), InvestigationEventType.NOTE,
                 "Collecting one bounded read-only recent-request sample for the follow-up");
         CollectionResult result = usesTas(service, investigation.getEnvironment())
-                ? collectTas(investigation, service, environment, query, maximumItems)
+                ? collectTas(investigation, service, environment, query, maximumItems, budget.searches())
                 : collectKubernetes(investigation, service, environment, query, maximumItems);
         state.note(investigation.getId(), result.collectedItems() > 0
                         ? InvestigationEventType.EVIDENCE_COLLECTED : InvestigationEventType.NOTE,
                 result.collectedItems() > 0
                         ? "Targeted follow-up refresh stored " + result.collectedItems() + " sanitized item(s)"
                         : "Targeted follow-up refresh completed without new evidence");
-        return result;
+        return investigation.isRetrospective()
+                ? new CollectionResult(result.attempted(), result.collectedItems(), "Historical incident window "
+                        + investigation.getIncidentStart() + " to " + investigation.getIncidentEnd()
+                        + "; no present-day traffic was sampled. " + result.description()) : result;
     }
 
     private CollectionResult collectTas(Investigation investigation, String service, Environment environment,
-                                         EvidenceQuery query, int maximumItems) {
+                                         EvidenceQuery query, int maximumItems, int maximumSearches) {
         AtomicBoolean acquired = new AtomicBoolean();
         SplunkSearchPermit permit = () -> {
             boolean reserved = state.tryReserveSplunkSearch(
-                    investigation.getId(), limits.getMaxSplunkSearches());
+                    investigation.getId(), maximumSearches);
             if (reserved) acquired.set(true);
             return reserved;
         };
@@ -107,8 +117,8 @@ public class TargetedFollowUpEvidenceService {
             if (response == null) return CollectionResult.attempted(0, "The traffic connector returned no result");
             if (response.outcome() == SplunkSearchOutcome.LIMIT_REACHED) {
                 state.note(investigation.getId(), InvestigationEventType.LIMIT_REACHED,
-                        "The targeted follow-up stopped at the investigation Splunk-search limit");
-                String description = "The investigation Splunk-search limit was reached";
+                        "The targeted follow-up stopped at the turn Splunk-search limit");
+                String description = "The turn Splunk-search limit was reached";
                 return acquired.get() ? CollectionResult.attempted(0, description)
                         : CollectionResult.skipped(description);
             }
@@ -148,6 +158,9 @@ public class TargetedFollowUpEvidenceService {
         int collected = 0;
         for (ConnectorEvidence item : evidence) {
             if (collected >= maximumItems) break;
+            if (investigation.isRetrospective() && (item.timestamp() == null
+                    || item.timestamp().isBefore(investigation.getIncidentStart())
+                    || !item.timestamp().isBefore(investigation.getIncidentEnd()))) continue;
             evidenceStore.append(investigation.getId(), mapper.map(item));
             collected++;
         }
@@ -175,7 +188,7 @@ public class TargetedFollowUpEvidenceService {
 
     private static String outcomeDescription(SplunkSearchOutcome outcome) {
         return switch (outcome) {
-            case LIMIT_REACHED -> "The investigation Splunk-search limit was reached";
+            case LIMIT_REACHED -> "The turn Splunk-search limit was reached";
             case UNCONFIGURED -> "Recent request search is not configured for this service";
             case UNAUTHORIZED, FORBIDDEN -> "Recent request search was not authorized";
             case TIMEOUT -> "Recent request search timed out within its configured bound";

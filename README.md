@@ -14,11 +14,11 @@ This MVP is intentionally read-only:
 - The unauthenticated local POC binds to loopback, requires CSRF tokens for state-changing browser requests, and emits restrictive browser security headers.
 - The UI and Claude response contract expose semantic evidence requests, never arbitrary commands.
 - Kubernetes permits only bounded `get`, `logs`, and `rollout status` operations. A second allowlist blocks mutating verbs, `exec`, `cp`, port forwarding, and similar operations.
-- CF CLI permits argument-free `target` verification plus `app`, `apps`, `logs`, opt-in `env`, and `routes`; separate DEV/TEST homes prevent shared-target races.
+- CF CLI permits argument-free `target` verification plus `app`, `apps`, `logs`, `events`, opt-in `env`, and `routes`; isolated configured homes prevent shared-target races.
 - Jenkins, GitLab, and Splunk adapters issue retrieval requests only.
 - Raw connector evidence passes through redaction before it is persisted or sent to Claude. Request and response bodies are disabled by default.
 - Claude is launched in bare/safe mode with no tools, MCP explicitly disallowed, non-interactive output, bounded turns and time, and no `--dangerously-skip-permissions` flag. Bare mode prevents workstation/project hooks, skills, plugins, memory, and configuration from entering the reasoning process. Its child process receives a narrow workstation/Vertex environment allowlist, never Jenkins, GitLab, or Splunk credentials.
-- Code investigation reads a bounded set of files at the exact deployed Git SHA and can only recommend a textual fix. It cannot edit, commit, or push.
+- Code investigation reads a bounded set of files at the Jenkins-reported deployed SHA, or a labeled historical candidate for a past incident, and can only recommend a textual fix. It cannot edit, commit, or push.
 
 Do not broaden these allowlists merely to work around missing access. Add a narrowly scoped semantic connector method and tests instead.
 
@@ -61,11 +61,10 @@ No Claude, kubectl, CF, Jenkins, GitLab, Splunk, or corporate network access is 
 
 ### Exercise the first vertical slice
 
-1. Select **Trace Tracking ID**.
-2. Select environment **TEST**.
-3. Enter tracking ID **DEMO-TRACE-001** and choose **Trace**.
-4. Watch the externally meaningful progress timeline; the detail page automatically reloads while the investigation runs.
-5. Review the localized failure path, evidence, timeline, diagnosis, and recommended actions.
+1. Enter **DEMO-TRACE-001** in the issue description.
+2. Select environment **TEST** and choose **Investigate**.
+3. Watch the externally meaningful progress timeline; the detail page automatically reloads while the investigation runs.
+4. Review the localized failure path, evidence, timeline, diagnosis, and recommended actions.
 
 Expected mock story:
 
@@ -88,14 +87,14 @@ Other mock service inputs exercise individual branches:
 | `downstream-500-service` | Downstream API HTTP 500 |
 | `database-error-service` | PostgreSQL connectivity evidence |
 
-Service triage is available under **Triage Service**. For example, use `catalog-service`, `TEST`, and `Returning 500s after the latest deployment`.
+Use the same form for service triage, for example `catalog-service in TEST returning 500s after the latest deployment`.
 
 ## UI and local endpoints
 
 | Endpoint | Purpose |
 | --- | --- |
-| `/` | Start service triage or tracking-ID tracing; recent investigations appear in the sidebar |
-| `/investigations/{id}` | Live status, diagnosis, failure path, sanitized evidence, timeline, feedback, follow-ups, and code escalation |
+| `/` | Describe an issue; service, tracking and timing clues share one flow |
+| `/investigations/{id}` | Live status, diagnosis, failure path, sanitized evidence, timeline, feedback, follow-ups, and automatically collected source evidence |
 | `/api/investigations/{id}` | Small JSON status response available to status clients |
 | `/diagnostics` | Human-readable executable and connector configuration checks |
 | `/api/diagnostics` | The same diagnostics as JSON; no credential values are returned |
@@ -176,11 +175,15 @@ See the [contributor guide](CONTRIBUTING.md) for development conventions and rep
 
 The live Kubernetes, TAS, Jenkins, GitLab, and Splunk adapters consume their applicable registry mappings. Environment variables provide explicit CLI contexts/endpoints/credentials and controlled fallbacks; enterprise naming and field conventions still require validation. Jenkins services select logical, separately authenticated controllers, while TAS services can select logical DEV/TEST targets backed by immutable isolated CF homes; both mappings fail closed when unknown or ambiguous.
 
+Service triage follows registered `dependencies` and registered destinations found in Feign logs, collecting each dependency's runtime, deployment, repository history, and configured config-server evidence. Plain-text Splunk messages survive canonical projection and pass through the normal sanitizer. Recent business-call searches use the configured tracking window (72 hours by default). Optional registered GET fixtures compare selected response fields for known-good and known-bad inputs. See [Dependency triage setup](docs/dependency-triage.md) for mappings, bounds, and evidence limitations.
+
+Describe the issue in the single launch form, including any service, tracking ID, or timing clues you know. No tracking tab or historical switch is required. If another team already fixed it, the agent can reconstruct retained evidence without an earlier agent run: it infers dates from the description or searches earlier TAS failures (72 hours, then 30 days by default). Follow-ups can correct timing and request deeper evidence in the same conversation. Questions such as `latest tracking ID for this service`, `this service not working`, and `why was this broken on 9/5` share that context. Slash dates default to month/day; the resolved UTC day is shown. See [Retrospective investigations](docs/retrospective-investigations.md) for source coverage and limits.
+
 The checked-in registry contains only `.example.invalid` URLs and deliberately fictional identifiers. Keep all organization-specific identifiers and mappings in the ignored external registry. Put secrets only in environment variables or an approved credential provider, never in either registry.
 
 ## Current MVP status
 
-The working slice includes both input workflows, asynchronous progress, bounded/sanitized evidence, mock and live connector implementations, structured Claude decisions with deterministic fallback, exact-SHA code escalation, correctness feedback, deterministic historical matching, file-backed persistence, diagnostics, and the internal UI. Follow-ups normally reuse stored evidence without recollection; an explicit recent-request/call/traffic question may perform one configured, persisted-budget, read-only refresh for the already localized service.
+The working slice includes a unified issue-description workflow, asynchronous progress, bounded/sanitized evidence, mock and live connector implementations, structured Claude decisions with deterministic fallback, automatic source inspection at a validated revision, correctness feedback, deterministic historical matching, file-backed persistence, diagnostics, and the internal UI. Follow-ups reuse useful stored evidence and can collect more through the same approved dispatcher when reasoning needs it. Date and tracking clues apply before collection; source-file and Splunk budgets persist across the investigation. See [Adaptive investigations](docs/adaptive-investigations.md).
 
 Enterprise rollout work remains: supply and validate private Splunk field/index mappings; validate Jenkins folder/job mapping and pipeline plugins; add authenticated runbook/documentation sources; implement focused live dependency adapters; add production-grade authentication/authorization and audit export; migrate to PostgreSQL; and complete deployment/operational hardening. Production remains prohibited even if local credentials can see it.
 

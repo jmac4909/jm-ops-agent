@@ -56,6 +56,24 @@ class InvestigationControllerWorkflowTest {
     }
 
     @Test
+    void historicalFormsPassUtcWindowAndPreserveRejectedInputWithoutQueuing() throws Exception {
+        var window = com.jmopsagent.domain.IncidentWindow.parse("2025-09-09T09:00", "2025-09-09T12:00");
+        Investigation investigation = Investigation.forServiceTriage("catalog-service", DeploymentEnvironment.TEST, "Already fixed");
+        investigation.setIncidentWindow(window);
+        when(investigations.createServiceInvestigation("catalog-service", "TEST", "Already fixed", window)).thenReturn(investigation);
+        mvc.perform(post("/investigations/service").param("service", "catalog-service").param("environment", "TEST")
+                        .param("userProblem", "Already fixed").param("incidentStart", "2025-09-09T09:00").param("incidentEnd", "2025-09-09T12:00"))
+                .andExpect(redirectedUrl("/investigations/" + investigation.getId()));
+        verify(workQueue).submit(investigation.getId());
+        org.mockito.Mockito.clearInvocations(workQueue);
+        mvc.perform(post("/investigations/tracking").param("trackingId", "DEMO-OLD-TRACE").param("environment", "TEST")
+                        .param("incidentStart", "2025-09-09T09:00").param("incidentEnd", ""))
+                .andExpect(redirectedUrl("/"))
+                .andExpect(flash().attribute("error", org.hamcrest.Matchers.containsString("both")));
+        verifyNoInteractions(workQueue);
+    }
+
+    @Test
     void rejectedEnvironmentReturnsToTrackingFormWithoutQueuingWork() throws Exception {
         when(investigations.createTrackingInvestigation("DEMO-TRACE-001", "PROD"))
                 .thenThrow(new IllegalArgumentException("Only DEV and TEST environments are allowed"));
@@ -64,7 +82,7 @@ class InvestigationControllerWorkflowTest {
                         .param("trackingId", "DEMO-TRACE-001")
                         .param("environment", "PROD"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/#tracking"))
+                .andExpect(redirectedUrl("/"))
                 .andExpect(flash().attribute("error", "Only DEV and TEST environments are allowed"));
 
         verifyNoInteractions(workQueue);

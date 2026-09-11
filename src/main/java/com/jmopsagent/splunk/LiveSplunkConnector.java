@@ -255,6 +255,12 @@ public class LiveSplunkConnector implements SplunkConnector {
     }
 
     @Override
+    public SplunkConnectorResult searchLatestTrackingIdDetailed(
+            String service, Environment environment, EvidenceQuery query, SplunkSearchPermit permit) {
+        return serviceSearch(service, environment, query, SearchKind.LATEST_TRACKING_ID, permit);
+    }
+
+    @Override
     public SplunkSearchResult getErrorPatterns(String service, Environment environment, EvidenceQuery query) {
         return getErrorPatternsDetailed(service, environment, query).result();
     }
@@ -284,6 +290,7 @@ public class LiveSplunkConnector implements SplunkConnector {
         String spl = switch (kind) {
             case ERRORS -> queryBuilder.serviceErrors(selectedIndexes, identities, profileNames, query.maxResults());
             case ACTIVITY -> queryBuilder.recentActivity(selectedIndexes, identities, profileNames, query.maxResults());
+            case LATEST_TRACKING_ID -> queryBuilder.latestTrackingId(selectedIndexes, identities, profileNames, query.maxResults());
             case BUSINESS_CALLS -> queryBuilder.recentBusinessCalls(
                     selectedIndexes, identities, profileNames, query.maxResults());
             default -> queryBuilder.serviceEvents(selectedIndexes, identities, profileNames, query.maxResults());
@@ -371,7 +378,7 @@ public class LiveSplunkConnector implements SplunkConnector {
         Map<String, String> canonicalServices = serviceIdentityMap(environment);
         for (JsonNode result : bounded) {
             String message = message(result);
-            String fingerprint = kind == SearchKind.BUSINESS_CALLS ? businessSignature(result)
+            String fingerprint = (kind == SearchKind.BUSINESS_CALLS || kind == SearchKind.LATEST_TRACKING_ID) ? businessSignature(result)
                     : kind == SearchKind.ACTIVITY ? activitySignature(result, message) : signature(message);
             groups.compute(fingerprint, (key, group) -> group == null ? new Group(result, message, 1)
                     : new Group(group.sample(), group.message(), group.count() + 1));
@@ -405,7 +412,7 @@ public class LiveSplunkConnector implements SplunkConnector {
                 metadata.put("bucketDuration", "5m");
                 metadata.put("countSemantics", "matching-log-events");
             }
-            if (kind == SearchKind.BUSINESS_CALLS) {
+            if (kind == SearchKind.BUSINESS_CALLS || kind == SearchKind.LATEST_TRACKING_ID) {
                 String sourceFormat = text(sample, "jmopsSourceFormat");
                 if (!"http-access".equals(sourceFormat)) {
                     addIfPresent(metadata, "trackingId",
@@ -420,11 +427,12 @@ public class LiveSplunkConnector implements SplunkConnector {
                 addIfPresent(metadata, "routerRequestId",
                         normalizer.value(sample, SplunkCanonicalField.ROUTER_REQUEST_ID));
                 metadata.put("sourceFormat", sourceFormat.isBlank() ? "application-log" : sourceFormat);
-                metadata.put("scanCapped", "true");
+                metadata.put("scanCapped", Boolean.toString(kind == SearchKind.BUSINESS_CALLS));
+                if (kind == SearchKind.LATEST_TRACKING_ID) metadata.put("selection", "latest-qualifying-event-in-window");
                 metadata.put("bodyIncluded", "false");
             }
             boolean error = kind == SearchKind.ERRORS || isError(severity, status);
-            EvidenceType type = kind == SearchKind.BUSINESS_CALLS ? EvidenceType.RECENT_BUSINESS_CALLS
+            EvidenceType type = (kind == SearchKind.BUSINESS_CALLS || kind == SearchKind.LATEST_TRACKING_ID) ? EvidenceType.RECENT_BUSINESS_CALLS
                     : kind == SearchKind.ACTIVITY ? EvidenceType.RECENT_ACTIVITY
                     : error && group.count() > 1 ? EvidenceType.ERROR_PATTERN
                     : EvidenceType.APPLICATION_LOG;
@@ -435,7 +443,7 @@ public class LiveSplunkConnector implements SplunkConnector {
                         + (operation.isBlank() || "unknown".equals(operation) ? "" : " for " + summarize(operation))
                         + (trafficEventCount == null ? "" : " (" + trafficEventCount + " matching log events)");
                 content = summary;
-            } else if (kind == SearchKind.BUSINESS_CALLS) {
+            } else if (kind == SearchKind.BUSINESS_CALLS || kind == SearchKind.LATEST_TRACKING_ID) {
                 String operation = businessOperation(sample);
                 String trackingId = normalizer.value(sample, SplunkCanonicalField.TRACKING_ID);
                 String executionTime = normalizer.value(sample, SplunkCanonicalField.EXECUTION_TIME);
@@ -763,7 +771,7 @@ public class LiveSplunkConnector implements SplunkConnector {
 
     enum SearchKind {
         TRACKING("tracking-trace"), ERRORS("service-errors"), EVENTS("service-events"),
-        ACTIVITY("recent-activity"), BUSINESS_CALLS("recent-business-calls");
+        ACTIVITY("recent-activity"), BUSINESS_CALLS("recent-business-calls"), LATEST_TRACKING_ID("latest-tracking-id");
 
         private final String logName;
         SearchKind(String logName) { this.logName = logName; }

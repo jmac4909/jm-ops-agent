@@ -25,6 +25,8 @@ class TasFollowUpEvidenceRefreshIntegrationTest {
     @Autowired InvestigationApplicationService investigations;
     @Autowired FollowUpConversationService followUps;
     @Autowired InvestigationRepository repository;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    com.jmopsagent.splunk.SplunkConnector splunk;
 
     @BeforeEach
     void clean() {
@@ -44,6 +46,13 @@ class TasFollowUpEvidenceRefreshIntegrationTest {
         assertThat(exchange.isTargetedEvidenceRequested()).isTrue();
         assertThat(exchange.getTargetedEvidenceItems()).isEqualTo(1);
         assertThat(investigations.get(investigation.getId()).getSplunkSearchCount()).isEqualTo(1);
+        var query = org.mockito.ArgumentCaptor.forClass(com.jmopsagent.connector.EvidenceQuery.class);
+        org.mockito.Mockito.verify(splunk).searchRecentBusinessCallsDetailed(
+                org.mockito.ArgumentMatchers.eq("demo-tas-service"),
+                org.mockito.ArgumentMatchers.eq(com.jmopsagent.connector.Environment.TEST),
+                query.capture(), org.mockito.ArgumentMatchers.any());
+        assertThat(java.time.Duration.between(query.getValue().from(), query.getValue().to()))
+                .isEqualTo(java.time.Duration.ofHours(72));
         assertThat(investigations.evidence(investigation.getId())).singleElement().satisfies(item -> {
             assertThat(item.getSourceSystem()).isEqualTo(EvidenceSource.SPLUNK);
             assertThat(item.getEvidenceType()).isEqualTo(EvidenceType.RECENT_BUSINESS_CALLS);

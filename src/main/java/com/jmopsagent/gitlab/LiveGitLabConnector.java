@@ -5,6 +5,13 @@ import com.jmopsagent.connector.CommitChange;
 import com.jmopsagent.connector.ConnectorInputValidator;
 import com.jmopsagent.connector.ConnectorEndpointValidator;
 import com.jmopsagent.connector.RepositoryRef;
+import com.jmopsagent.connector.ConnectorEvidence;
+import com.jmopsagent.connector.Environment;
+import com.jmopsagent.connector.EvidenceQuery;
+import com.jmopsagent.connector.EvidenceSource;
+import com.jmopsagent.connector.EvidenceType;
+import com.jmopsagent.domain.DeploymentEnvironment;
+import java.util.Map;
 import com.jmopsagent.registry.ServiceDefinition;
 import com.jmopsagent.registry.ServiceRegistry;
 import java.net.URI;
@@ -109,6 +116,117 @@ public class LiveGitLabConnector implements GitLabConnector {
         } catch (RuntimeException ex) {
             throw failure("commits", ex);
         }
+    }
+
+    @Override
+    public List<CommitChange> searchCommits(String service, List<String> keywords, EvidenceQuery query) {
+        if (keywords == null || keywords.size() > 10 || keywords.stream()
+                .anyMatch(term -> term == null || term.isBlank() || term.length() > 100)) {
+            throw new IllegalArgumentException("Commit keywords must contain at most ten bounded literal terms");
+        }
+        Optional<RepositoryRef> repository = resolveRepository(service);
+        if (repository.isEmpty()) return List.of();
+        String branch = ConnectorInputValidator.revision(repository.get().defaultBranch());
+        try {
+            JsonNode commits = client.get().uri(uri -> uri.pathSegment("api", "v4", "projects",
+                            repository.get().projectId(), "repository", "commits")
+                    .queryParam("ref_name", branch).queryParam("since", query.from())
+                    .queryParam("until", query.to()).queryParam("per_page", 100).build())
+                    .retrieve().bodyToMono(JsonNode.class).block(REQUEST_TIMEOUT);
+            if (commits == null || !commits.isArray()) return List.of();
+            List<CommitChange> result = new ArrayList<>();
+            for (JsonNode commit : commits) {
+                String title = commit.path("title").asText("");
+                if (!keywords.isEmpty() && keywords.stream().noneMatch(term ->
+                        title.toLowerCase(Locale.ROOT).contains(term.toLowerCase(Locale.ROOT)))) continue;
+                result.add(new CommitChange(commit.path("id").asText(), title,
+                        commit.path("author_name").asText(), parseInstant(commit.path("committed_date").asText()),
+                        List.of(), ""));
+                if (result.size() >= Math.min(query.maxResults(), 100)) break;
+            }
+            return List.copyOf(result);
+        } catch (RuntimeException ex) {
+            throw failure("search-commits", ex);
+        }
+    }
+
+    @Override
+    public List<ConnectorEvidence> getRepositoryConfiguration(String service, Environment environment, int maxCharacters) {
+        return repositoryConfiguration(service, environment, null, maxCharacters);
+    }
+
+    @Override
+    public List<ConnectorEvidence> getRepositoryConfigurationAt(String service, Environment environment,
+                                                               Instant asOf, int maxCharacters) {
+        if (asOf == null) throw new IllegalArgumentException("Historical config timestamp is required");
+        return repositoryConfiguration(service, environment, asOf, maxCharacters);
+    }
+
+    private List<ConnectorEvidence> repositoryConfiguration(String service, Environment environment,
+                                                            Instant asOf, int maxCharacters) {
+        String safeService = ConnectorInputValidator.service(service);
+        if (environment == null) throw new IllegalArgumentException("Environment is required");
+        ConnectorInputValidator.boundedLimit(maxCharacters, 200_000);
+        Optional<ServiceDefinition> definition = serviceRegistry.resolve(safeService);
+        DeploymentEnvironment env = DeploymentEnvironment.valueOf(environment.name());
+        Optional<String> url = definition.flatMap(value -> value.attributeForEnvironment("configServer.repository", env));
+        if (!configured || url.isEmpty()) return List.of();
+        String project = projectIdFromUrl(url.get()).orElseThrow(() ->
+                new IllegalArgumentException("Config repository must belong to the configured GitLab origin"));
+        String ref = ConnectorInputValidator.revision(definition.get()
+                .attributeForEnvironment("configServer.ref", env).orElse("master"));
+        String lowerEnv = environment.name().toLowerCase(Locale.ROOT);
+        String path = ConnectorInputValidator.repositoryPath(definition.get()
+                .attributeForEnvironment("configServer.path", env)
+                .orElse(lowerEnv + "/" + safeService + "-" + lowerEnv + ".yml")
+                .replace("{service}", safeService));
+        try {
+            String selectedRef = ref;
+            Instant committedAt = null;
+            if (asOf != null) {
+                JsonNode history = client.get().uri(uri -> uri.pathSegment("api", "v4", "projects", project,
+                                "repository", "commits").queryParam("ref_name", ref).queryParam("path", path)
+                        .queryParam("until", asOf).queryParam("per_page", 1).build())
+                        .retrieve().bodyToMono(JsonNode.class).block(REQUEST_TIMEOUT);
+                if (history == null || !history.isArray() || history.isEmpty()) return List.of();
+                selectedRef = ConnectorInputValidator.revision(history.get(0).path("id").asText());
+                committedAt = parseInstant(history.get(0).path("committed_date").asText());
+                if (committedAt == null || committedAt.isAfter(asOf)) return List.of();
+            }
+            final String fileRef = selectedRef;
+            String content = client.get().uri(uri -> uri.pathSegment("api", "v4", "projects", project,
+                            "repository", "files", path, "raw").queryParam("ref", fileRef).build())
+                    .retrieve().bodyToMono(String.class).block(REQUEST_TIMEOUT);
+            if (content == null) return List.of();
+            boolean truncated = content.length() > maxCharacters;
+            return List.of(new ConnectorEvidence("gitlab-config-" + safeService, EvidenceSource.GITLAB,
+                    EvidenceType.CONFIGURATION, asOf == null ? Instant.now() : committedAt, safeService, environment,
+                    (asOf == null ? "Repository configuration" : "Historical repository configuration")
+                            + " (runtime values unverified): " + path,
+                    (asOf == null ? "" : "Repository file at commit " + fileRef + " (" + committedAt
+                            + "), as of " + asOf + "; runtime values unverified.\n")
+                            + configurationProperties(content, maxCharacters), URI.create(url.get()),
+                    Map.of("ref", fileRef, "path", path, "runtimeVerified", "false",
+                            "asOf", asOf == null ? "current branch" : asOf.toString(),
+                            "truncated", Boolean.toString(truncated)), 0.6));
+        } catch (RuntimeException ex) {
+            if (isNotFound(ex)) return List.of();
+            throw failure("repository-configuration", ex);
+        }
+    }
+
+    private static String configurationProperties(String content, int maximum) {
+        var yaml = new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
+        yaml.setResources(new org.springframework.core.io.ByteArrayResource(content.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var properties = yaml.getObject();
+        if (properties == null) return "No repository configuration properties found";
+        StringBuilder result = new StringBuilder();
+        properties.keySet().stream().map(Object::toString).sorted().forEach(key -> {
+            String value = key.toLowerCase(Locale.ROOT).matches(".*(?:password|passwd|secret|token|credential|private.?key|api.?key).*" )
+                    ? "[REDACTED_AT_SOURCE]" : String.valueOf(properties.get(key));
+            appendBounded(result, key + "=" + value + "\n", maximum);
+        });
+        return result.toString();
     }
 
     @Override
@@ -268,6 +386,8 @@ public class LiveGitLabConnector implements GitLabConnector {
     }
 
     private String defaultBranch(ServiceDefinition definition) {
+        Optional<String> configuredBranch = definition.attributeValue("gitlab.defaultBranch");
+        if (configuredBranch.isPresent()) return ConnectorInputValidator.revision(configuredBranch.get());
         List<String> eksBranches = definition.attributeValues("eksBranches");
         if (!eksBranches.isEmpty()) return eksBranches.getFirst();
         List<String> tasBranches = definition.attributeValues("tasBranches");

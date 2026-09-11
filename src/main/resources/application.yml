@@ -43,7 +43,6 @@ jmops:
     max-code-files: 8
     max-historical-incidents: 5
     max-follow-ups: 10
-    max-follow-up-evidence-collections: 1
     tracking-search-window: ${JMOPS_LIMITS_TRACKING_SEARCH_WINDOW:72h}
   process:
     default-timeout: 30s

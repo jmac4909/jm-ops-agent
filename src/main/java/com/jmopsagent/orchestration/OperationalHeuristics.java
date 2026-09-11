@@ -61,7 +61,7 @@ public class OperationalHeuristics {
                         currentEvidence.stream().filter(i -> i.getSummary().toLowerCase(Locale.ROOT).contains("error"))
                                 .limit(5).map(i -> i.getId().toString()).toList())),
                 List.of(), RootCauseCategory.UNKNOWN,
-                List.of("Inspect the exact deployed revision only if the developer chooses Investigate Code."));
+                List.of("Inspect the relevant source at the validated deployed revision to explain the failure."));
     }
 
     private ReasoningDecision decision(String summary, RootCauseCategory category, double confidence,

@@ -43,6 +43,9 @@ public class EvidenceItem {
     @Column(nullable = false, length = 48)
     private EvidenceType evidenceType;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean supersededByScopeChange;
+
     private Instant occurredAt;
 
     @Column(length = 160)
@@ -180,7 +183,9 @@ public class EvidenceItem {
     public Instant getOccurredAt() { return occurredAt; }
     public String getService() { return service; }
     public DeploymentEnvironment getEnvironment() { return environment; }
-    public String getSummary() { return summary; }
+    public boolean isSupersededByScopeChange() { return supersededByScopeChange; }
+    void supersedeForScopeChange() { supersededByScopeChange = true; }
+    public String getSummary() { return (supersededByScopeChange ? "[Previous evidence window] " : "") + summary; }
     public String getSanitizedContent() { return sanitizedContent; }
     public String getSourceUrl() { return sourceUrl; }
     public String getMetadataJson() { return metadataJson; }

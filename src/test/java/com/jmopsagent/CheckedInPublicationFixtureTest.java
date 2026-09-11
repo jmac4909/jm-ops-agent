@@ -22,7 +22,7 @@ class CheckedInPublicationFixtureTest {
     private static final Set<String> FICTIONAL_SERVICES = Set.of(
             "edge-gateway", "identity-service", "catalog-service");
     private static final Pattern ALLOWED_ATTRIBUTE_PATH = Pattern.compile(
-            "(?:runtime\\.platform\\.(?:DEV|TEST)|gitlab\\.repository|(?:tas|eks)Branches|"
+            "(?:dependencies|runtime\\.platform\\.(?:DEV|TEST)|gitlab\\.repository|(?:tas|eks)Branches|"
                     + "eks\\.(?:namespace(?:\\.(?:DEV|TEST))?|deployment|service)|"
                     + "tas\\.(?:appPattern|target(?:\\.(?:DEV|TEST))?)|"
                     + "jenkins\\.(?:job|controller)(?:\\.(?:DEV|TEST))?|"
@@ -44,6 +44,7 @@ class CheckedInPublicationFixtureTest {
                     .allMatch(alias -> alias.startsWith("demo-"));
             assertThat(definition.aliasesWithProvenance().values())
                     .allSatisfy(CheckedInPublicationFixtureTest::assertManualConfirmed);
+            assertThat(definition.dependencies()).allMatch(FICTIONAL_SERVICES::contains);
 
             String repository = definition.attributeValue("gitlab.repository").orElseThrow();
             URI repositoryUri = URI.create(repository);

@@ -66,9 +66,10 @@ final class SplunkQueryBuilder {
     String serviceErrors(List<String> indexes, List<String> serviceIdentities,
             List<String> profileNames, int maxResults) {
         return base(indexes, applicationLogPredicate(serviceIdentities)
-                + " (ERROR OR Exception OR status>=500)") + pipeline(profileNames)
+                + " (ERROR OR Exception OR status>=500 OR \"statusCode\" OR \"httpStatus\" OR \"http_status\")")
+                + pipeline(profileNames)
                 + serviceSearch(serviceIdentities)
-                + " | search (severity=\"ERROR\" OR httpStatus>=500 OR message=\"*Exception*\")"
+                + " | search (severity=\"ERROR\" OR httpStatus>=500 OR message=\"*Exception*\" OR message=\"*ERROR*\")"
                 + finish(maxResults);
     }
 
@@ -121,6 +122,20 @@ final class SplunkQueryBuilder {
                 + " | dedup trackingId"
                 + " | eval jmopsSourceFormat=\"application-log\""
                 + finish(maxResults, BUSINESS_CALL_PROJECTION);
+    }
+
+    String latestTrackingId(List<String> indexes, List<String> serviceIdentities, List<String> profileNames, int maxResults) {
+        validateMaxResults(maxResults);
+        return base(indexes, applicationLogPredicate(serviceIdentities) + " " + normalizer.businessCallRawPredicate(profileNames))
+                + pipeline(profileNames) + serviceSearch(serviceIdentities)
+                + " | where isnotnull(trackingId) AND len(trim(trackingId))>0 AND match(httpStatus,\"^[1-5][0-9]{2}$\") AND isnotnull(_time)"
+                + " AND match(trackingId,\"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$\")"
+                + " AND NOT like(trackingId,\"%..%\")"
+                + " AND NOT in(lower(trackingId),\"unknown\",\"unavailable\",\"null\",\"missing\")"
+                // Qualification and ordering precede row limiting; raw sampling cannot prove latest.
+                + " | sort " + (maxResults + 1) + " -_time, +trackingId"
+                + " | eval jmopsSourceFormat=\"application-log\""
+                + BUSINESS_CALL_PROJECTION;
     }
 
     String recentHttpCalls(List<String> indexes, List<String> serviceIdentities, int maxResults) {

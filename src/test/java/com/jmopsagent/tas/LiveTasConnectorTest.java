@@ -39,6 +39,56 @@ class LiveTasConnectorTest {
     Path tempDirectory;
 
     @Test
+    void selectsAnIsolatedHomeByServiceOrgAndSpaceForEvents() {
+        var requests = new java.util.ArrayList<ProcessRequest>();
+        var properties = new TasProperties();
+        String home = tempDirectory.resolve("second").toString();
+        properties.setTargets(Map.of(
+                "first", target("TEST", API, "first-org", SPACE, tempDirectory.resolve("first").toString()),
+                "second", target("TEST", API, "second-org", SPACE, home)));
+        var registry = registry("""
+                services:
+                  - service: sample-api
+                    tas:
+                      org:
+                        TEST: second-org
+                      space:
+                        TEST: sample-space
+                """);
+        var connector = new LiveTasConnector(request -> {
+            requests.add(request);
+            return success(request.arguments().equals(List.of("target"))
+                    ? targetOutput(API, "second-org", SPACE)
+                    : "2026-09-09T10:00:00Z audit.app.restage platform-bot");
+        }, registry, properties);
+        var evidence = connector.getEvents("sample-api", Environment.TEST,
+                com.jmopsagent.connector.EvidenceQuery.recent(java.time.Duration.ofHours(72), 10));
+        assertThat(evidence.getFirst().content()).contains("audit.app.restage", "platform-bot");
+        assertThat(requests).extracting(ProcessRequest::arguments)
+                .containsExactly(List.of("target"), List.of("events", "sample-api-test"));
+        assertThat(requests).allSatisfy(request -> assertThat(request.environmentOverrides()).containsEntry("CF_HOME", home));
+    }
+
+    @Test
+    void rejectsConflictingServiceOrgAndExplicitTargetBeforeAnyCommand() {
+        var properties = new TasProperties();
+        properties.setTargets(Map.of("first", target("TEST", API, ORG, SPACE, tempDirectory.resolve("first").toString())));
+        var registry = registry("""
+                services:
+                  - service: sample-api
+                    tas:
+                      target: first
+                      org:
+                        TEST: wrong-org
+                """);
+        var calls = new AtomicInteger();
+        var connector = new LiveTasConnector(request -> { calls.incrementAndGet(); return success(""); }, registry, properties);
+        assertThat(connector.getApplicationStatus("sample-api", Environment.TEST).getFirst().metadata())
+                .containsEntry("status", "TARGET_MAPPING_MISMATCH");
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
     void verifiesTheIsolatedTargetBeforeExecutingAReadOnlyOperation() {
         ConcurrentLinkedQueue<ProcessRequest> requests = new ConcurrentLinkedQueue<>();
         ProcessRunner runner = request -> {

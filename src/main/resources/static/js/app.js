@@ -48,56 +48,6 @@
         });
     }
 
-    function initializeTabs() {
-        var tabs = Array.prototype.slice.call(document.querySelectorAll("[data-tab-target]"));
-        if (!tabs.length) {
-            return;
-        }
-
-        function activate(tab, updateHash) {
-            tabs.forEach(function (candidate) {
-                var selected = candidate === tab;
-                var panel = document.getElementById(candidate.getAttribute("data-tab-target"));
-                candidate.classList.toggle("is-active", selected);
-                candidate.setAttribute("aria-selected", String(selected));
-                candidate.tabIndex = selected ? 0 : -1;
-                if (panel) {
-                    panel.hidden = !selected;
-                }
-            });
-            if (updateHash && window.history && window.history.replaceState) {
-                var mode = tab.id === "tracking-tab" ? "tracking" : "service";
-                window.history.replaceState(null, "", "#" + mode);
-            }
-        }
-
-        tabs.forEach(function (tab, index) {
-            tab.addEventListener("click", function () { activate(tab, true); });
-            tab.addEventListener("keydown", function (event) {
-                if (["ArrowLeft", "ArrowRight", "Home", "End"].indexOf(event.key) === -1) {
-                    return;
-                }
-                event.preventDefault();
-                var nextIndex;
-                if (event.key === "Home") {
-                    nextIndex = 0;
-                } else if (event.key === "End") {
-                    nextIndex = tabs.length - 1;
-                } else {
-                    nextIndex = (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-                }
-                activate(tabs[nextIndex], true);
-                tabs[nextIndex].focus();
-            });
-        });
-
-        var trackingInput = document.getElementById("trackingId");
-        var trackingTab = document.getElementById("tracking-tab");
-        if (trackingTab && (window.location.hash === "#tracking" || (trackingInput && trackingInput.value.trim()))) {
-            activate(trackingTab, false);
-        }
-    }
-
     function initializeCharacterCounters() {
         document.querySelectorAll("[data-character-count]").forEach(function (counter) {
             var field = document.getElementById(counter.getAttribute("data-character-count"));
@@ -322,7 +272,6 @@
 
     function initialize() {
         initializeSidebar();
-        initializeTabs();
         initializeCharacterCounters();
         initializeFeedback();
         initializeDates();

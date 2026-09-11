@@ -30,13 +30,13 @@ class InvestigationLimitsPropertiesTest {
     }
 
     @Test
-    void followUpEvidenceRefreshIsBoundedAndConfigurable() {
+    void automaticHistoryDiscoveryIsBoundedAndConfigurable() {
         InvestigationLimitsProperties properties = new InvestigationLimitsProperties();
 
-        assertThat(properties.getMaxFollowUpEvidenceCollections()).isEqualTo(1);
-        properties.setMaxFollowUpEvidenceCollections(2);
-        assertThat(properties.getMaxFollowUpEvidenceCollections()).isEqualTo(2);
+        assertThat(properties.getHistoryDiscoveryWindow()).isEqualTo(Duration.ofDays(30));
+        properties.setHistoryDiscoveryWindow(Duration.ofDays(60));
+        assertThat(properties.getHistoryDiscoveryWindow()).isEqualTo(Duration.ofDays(60));
         assertThatIllegalArgumentException().isThrownBy(() ->
-                properties.setMaxFollowUpEvidenceCollections(11));
+                properties.setHistoryDiscoveryWindow(Duration.ofDays(91)));
     }
 }

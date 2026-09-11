@@ -16,6 +16,7 @@ class ReadOnlyCliPolicyTest {
         assertThatNoException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(
                 List.of("logs", "api", "--recent")));
         assertThatNoException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(List.of("target")));
+        assertThatNoException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(List.of("events", "sample-test")));
     }
 
     @Test
@@ -26,6 +27,8 @@ class ReadOnlyCliPolicyTest {
                 List.of("--context", "test", "--namespace", "team-test", "rollout", "restart", "deployment/api")));
         assertThatIllegalArgumentException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(
                 List.of("restart", "api")));
+        assertThatIllegalArgumentException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(List.of("events", "--help")));
+        assertThatIllegalArgumentException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(List.of("events", "sample", "--extra")));
         assertThatIllegalArgumentException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(
                 List.of("target", "-o", "sample-org", "-s", "sample-space")));
         assertThatIllegalArgumentException().isThrownBy(() -> ReadOnlyCliPolicy.validateCf(

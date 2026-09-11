@@ -23,7 +23,7 @@ final class ClaudeDecisionSchema {
                 "nextEvidenceRequests":{"type":"array","items":{
                   "type":"object","additionalProperties":false,"required":["type","reason"],
                   "properties":{
-                    "type":{"type":"string","enum":["WORKLOAD_HEALTH","RECENT_RUNTIME_EVENTS","RECENT_LOGS","DEPLOYMENT_METADATA","LATEST_DEPLOYMENT","RECENT_CHANGES","EFFECTIVE_CONFIGURATION","SERVICE_EVENTS","RECENT_ACTIVITY","RECENT_BUSINESS_CALLS","ERROR_PATTERNS","DEPENDENCY_EVIDENCE","HISTORICAL_INCIDENTS","RELEVANT_CODE_FILES"]},
+                    "type":{"type":"string","enum":["WORKLOAD_HEALTH","RECENT_RUNTIME_EVENTS","RECENT_LOGS","DEPLOYMENT_METADATA","LATEST_DEPLOYMENT","RECENT_CHANGES","EFFECTIVE_CONFIGURATION","SERVICE_EVENTS","RECENT_ACTIVITY","RECENT_BUSINESS_CALLS","ERROR_PATTERNS","DEPENDENCY_EVIDENCE","HISTORICAL_INCIDENTS","EARLIER_FAILURES","TRACKING_TRACE", "LATEST_TRACKING_ID","RELEVANT_CODE_FILES"]},
                     "service":{"type":["string","null"]},
                     "reason":{"type":"string"}
                   }

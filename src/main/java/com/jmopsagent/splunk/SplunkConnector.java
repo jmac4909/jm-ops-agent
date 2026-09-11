@@ -109,6 +109,13 @@ public interface SplunkConnector {
                 : SplunkConnectorResult.limitReached();
     }
 
+    /** Latest qualifying application ID, with no router fallback. Unimplemented sources are explicit gaps. */
+    default SplunkConnectorResult searchLatestTrackingIdDetailed(
+            String service, Environment environment, EvidenceQuery query, SplunkSearchPermit permit) {
+        return new SplunkConnectorResult(new SplunkSearchResult(java.util.List.of(), java.util.List.of(), 0, false),
+                SplunkSearchOutcome.UNCONFIGURED);
+    }
+
     private static boolean acquire(SplunkSearchPermit permit) {
         return Objects.requireNonNull(permit, "permit").tryAcquire();
     }

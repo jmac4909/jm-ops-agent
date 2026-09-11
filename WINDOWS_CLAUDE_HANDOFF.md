@@ -30,7 +30,7 @@ $env:SPRING_PROFILES_ACTIVE = "local-mock"
 .\mvnw.cmd spring-boot:run
 ```
 
-6. Open `http://127.0.0.1:8080`, select **Trace Tracking ID**, choose **TEST**, and enter `DEMO-TRACE-001`.
+6. Open `http://127.0.0.1:8080`, enter `DEMO-TRACE-001` in the issue description, choose **TEST**, and select **Investigate**.
 
 The expected path is:
 
@@ -123,10 +123,10 @@ Verify:
 - http://127.0.0.1:8080 loads the UI.
 
 Exercise the UI:
-1. Select Trace Tracking ID.
+1. Open the issue description form.
 2. Select TEST.
-3. Enter DEMO-TRACE-001.
-4. Start the trace and wait for COMPLETED.
+3. Enter DEMO-TRACE-001 in the description.
+4. Select Investigate and wait for COMPLETED.
 5. Confirm Edge Gateway succeeds, Identity Service succeeds, and Catalog Service fails with HTTP 500.
 6. Confirm the diagnosis is CONFIG with HIGH confidence and cites the incorrect TEST database parameter reference.
 7. Confirm evidence, timeline, recommendations, and recent-investigations sidebar render.

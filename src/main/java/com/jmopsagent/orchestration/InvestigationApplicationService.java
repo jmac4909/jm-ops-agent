@@ -7,7 +7,6 @@ import com.jmopsagent.domain.InvestigationEvent;
 import com.jmopsagent.persistence.EvidenceItemRepository;
 import com.jmopsagent.persistence.InvestigationEventRepository;
 import com.jmopsagent.persistence.InvestigationRepository;
-import com.jmopsagent.connector.ConnectorInputValidator;
 import com.jmopsagent.sanitization.EvidenceSanitizer;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.data.domain.PageRequest;
@@ -24,32 +23,65 @@ public class InvestigationApplicationService {
     private final InvestigationEventRepository events;
     private final EnvironmentPolicy environmentPolicy;
     private final EvidenceSanitizer sanitizer;
+    private final InvestigationClues clues;
 
     public InvestigationApplicationService(InvestigationRepository investigations,
                                            EvidenceItemRepository evidenceItems,
                                            InvestigationEventRepository events,
                                            EnvironmentPolicy environmentPolicy,
-                                           EvidenceSanitizer sanitizer) {
+                                           EvidenceSanitizer sanitizer,
+                                           InvestigationClues clues) {
         this.investigations = investigations;
         this.evidenceItems = evidenceItems;
         this.events = events;
         this.environmentPolicy = environmentPolicy;
         this.sanitizer = sanitizer;
+        this.clues = clues;
     }
 
     @Transactional
     public Investigation createTrackingInvestigation(String trackingId, String environment) {
-        String id = ConnectorInputValidator.trackingId(boundedRequired(trackingId, "Tracking ID", 256));
-        return investigations.save(Investigation.forTrackingId(id, environmentPolicy.requireAllowed(environment)));
+        return createTrackingInvestigation(trackingId, environment, null);
+    }
+
+    @Transactional
+    public Investigation createTrackingInvestigation(String trackingId, String environment,
+                                                      com.jmopsagent.domain.IncidentWindow window) {
+        String hint = trackingId != null && trackingId.trim().matches("[A-Za-z0-9_.:-]{1,256}") ? trackingId.trim() : null;
+        return createInvestigation(trackingId, null, hint, environment, window);
     }
 
     @Transactional
     public Investigation createServiceInvestigation(String service, String environment, String problem) {
-        String serviceName = ConnectorInputValidator.service(boundedRequired(service, "Service", 160));
-        String description = boundedRequired(problem, "Problem description", 8_000);
+        return createServiceInvestigation(service, environment, problem, null);
+    }
+
+    @Transactional
+    public Investigation createServiceInvestigation(String service, String environment, String problem,
+                                                     com.jmopsagent.domain.IncidentWindow window) {
+        return createInvestigation(problem, service, null, environment, window);
+    }
+
+    @Transactional
+    public Investigation createInvestigation(String problem, String serviceHint, String trackingHint,
+                                              String environment, com.jmopsagent.domain.IncidentWindow explicitWindow) {
+        String description = boundedOptional(problem, 8_000);
+        if (description == null) description = boundedRequired(serviceHint == null || serviceHint.isBlank()
+                ? trackingHint : serviceHint, "Issue description, service or tracking ID", 8_000);
+        var resolved = clues.resolve(description, boundedOptional(serviceHint, 160), boundedOptional(trackingHint, 256),
+                environment, java.time.Instant.now());
         var sanitized = sanitizer.sanitize(description);
-        Investigation investigation = Investigation.forServiceTriage(serviceName,
-                environmentPolicy.requireAllowed(environment), sanitized.sanitizedContent());
+        var env = environmentPolicy.requireAllowed(resolved.environment());
+        Investigation investigation = resolved.service() != null
+                ? Investigation.forServiceTriage(resolved.service(), env, sanitized.sanitizedContent())
+                : Investigation.forTrackingId(resolved.trackingId(), env);
+        investigation.setUserProblem(sanitized.sanitizedContent());
+        investigation.setUserTrackingId(resolved.trackingId());
+        investigation.setIncidentWindow(explicitWindow == null ? resolved.window() : explicitWindow);
+        if (explicitWindow == null && resolved.window() != null) {
+            investigation.addEvent(InvestigationEvent.note(com.jmopsagent.domain.InvestigationEventType.NOTE,
+                    "Incident window inferred from the description in UTC: " + resolved.window().start() + " to " + resolved.window().end()));
+        }
         if (sanitized.redactionApplied()) {
             investigation.addEvent(InvestigationEvent.note(com.jmopsagent.domain.InvestigationEventType.NOTE,
                     "Sensitive values were redacted from the submitted problem description"));

@@ -74,7 +74,7 @@ class TrackingInvestigationIntegrationTest {
     @Test
     void serviceTriageBranchesToDatabaseEvidenceOnlyWhenLogsPointThere() {
         Investigation created = applicationService.createServiceInvestigation("database-error-service", "DEV",
-                "Service returns 500 while reading provider data");
+                "Service returns 500 while reading catalog data");
 
         orchestrator.investigate(created.getId());
 

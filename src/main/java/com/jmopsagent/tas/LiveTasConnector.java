@@ -95,6 +95,14 @@ public class LiveTasConnector implements TasConnector {
     }
 
     @Override
+    public List<ConnectorEvidence> getEvents(String service, Environment environment, EvidenceQuery query) {
+        return List.of(execute(service, environment, EvidenceType.DEPLOYMENT, "TAS application events",
+                List.of("events", applicationName(service, environment)), query.maxContentCharacters(),
+                output -> output.lines().limit(query.maxResults() + 4L)
+                        .collect(java.util.stream.Collectors.joining("\n"))));
+    }
+
+    @Override
     public List<ConnectorEvidence> getEnvironmentMetadata(String service, Environment environment) {
         if (!environmentMetadataEnabled) {
             return List.of(unavailable(ConnectorInputValidator.service(service), requireEnvironment(environment),
@@ -122,7 +130,11 @@ public class LiveTasConnector implements TasConnector {
             List<String> operation, int maxCharacters, UnaryOperator<String> filter) {
         String safeService = ConnectorInputValidator.service(service);
         if (environment == null) throw new IllegalArgumentException("Environment is required");
-        TargetResolution resolution = targetCatalog.resolve(targetReference(safeService, environment), environment);
+        var definition = serviceRegistry.resolve(safeService);
+        var deploymentEnvironment = DeploymentEnvironment.valueOf(environment.name());
+        Optional<String> org = definition.flatMap(value -> value.attributeForEnvironment("tas.org", deploymentEnvironment));
+        Optional<String> space = definition.flatMap(value -> value.attributeForEnvironment("tas.space", deploymentEnvironment));
+        TargetResolution resolution = targetCatalog.resolve(targetReference(safeService, environment), environment, org, space);
         if (!resolution.available()) {
             return unavailable(safeService, environment, type, label + " unavailable",
                     resolution.message(), resolution.status());
@@ -397,7 +409,8 @@ public class LiveTasConnector implements TasConnector {
             }
         }
 
-        private TargetResolution resolve(Optional<String> requestedId, Environment environment) {
+        private TargetResolution resolve(Optional<String> requestedId, Environment environment,
+                Optional<String> org, Optional<String> space) {
             if (invalidConfiguration) {
                 return TargetResolution.failure("INVALID_CONFIGURATION",
                         "The TAS target configuration is invalid; no command was executed.");
@@ -419,10 +432,17 @@ public class LiveTasConnector implements TasConnector {
                     return TargetResolution.failure("TARGET_ENVIRONMENT_MISMATCH",
                             "The service TAS target is not approved for the requested environment; no command was executed.");
                 }
+                if (org.filter(value -> !value.equals(selected.org())).isPresent()
+                        || space.filter(value -> !value.equals(selected.space())).isPresent()) {
+                    return TargetResolution.failure("TARGET_MAPPING_MISMATCH",
+                            "The service org/space conflicts with its TAS target; no command was executed.");
+                }
                 return TargetResolution.success(selected);
             }
             List<Target> candidates = targets.values().stream()
                     .filter(target -> target.environment() == environment)
+                    .filter(target -> org.isEmpty() || org.get().equals(target.org()))
+                    .filter(target -> space.isEmpty() || space.get().equals(target.space()))
                     .toList();
             if (candidates.isEmpty()) {
                 return TargetResolution.failure("UNCONFIGURED",

@@ -53,6 +53,97 @@ public class LiveJenkinsConnector implements JenkinsConnector {
     }
 
     @Override
+    public List<DeploymentInfo> getDeploymentHistory(String service, Environment environment) {
+        return retainedHistory(service, environment, null);
+    }
+
+    @Override
+    public List<DeploymentInfo> getDeploymentHistory(String service, Environment environment, Instant anchor) {
+        if (anchor == null || anchor.isAfter(Instant.now())) throw new IllegalArgumentException("A past Jenkins history anchor is required");
+        return retainedHistory(service, environment, anchor);
+    }
+
+    private List<DeploymentInfo> retainedHistory(String service, Environment environment, Instant anchor) {
+        String safeService = ConnectorInputValidator.service(service);
+        if (environment == null) throw new IllegalArgumentException("Environment is required");
+        JenkinsResolvedTarget target = targetResolver.resolve(safeService, environment);
+        HistoryReader reader = new HistoryReader(target);
+        int offset = anchor == null ? 0 : Math.max(0, reader.seek(anchor) - 50);
+        JsonNode response = reader.page(offset, 100, true);
+        if (response == null) return List.of();
+        List<DeploymentInfo> result = new ArrayList<>();
+        for (JsonNode build : response.path("builds")) {
+            if (result.size() >= 100) break;
+            if (!build.path("timestamp").isIntegralNumber() || !build.path("duration").isIntegralNumber()) continue;
+            long timestamp = build.path("timestamp").asLong();
+            long duration = build.path("duration").asLong();
+            if (timestamp <= 0 || duration < 0) continue;
+            Instant started = Instant.ofEpochMilli(timestamp);
+            boolean building = build.path("building").asBoolean(false);
+            result.add(new DeploymentInfo(safeService, environment, target.job(), build.path("number").asLong(),
+                    building ? "BUILDING" : build.path("result").asText("UNKNOWN"), started, findBuiltRevision(build),
+                    target.controller().safeResultUri(build.path("url").asText()), List.of(), List.of(), List.of(),
+                    Map.of("completedAt", building ? "" : started.plusMillis(duration).toString(),
+                            "revisionSource", "lastBuiltRevision", "controller", target.controller().id(),
+                            "coverage", "at most 100 retained builds at index " + offset
+                                    + (anchor == null ? "" : ", sought near " + anchor)
+                                    + "; timestamp ordering and retention may be incomplete; build completion is not deployment attestation")));
+        }
+        return List.copyOf(result);
+    }
+
+    /** Seek by indexed timestamp probes, so busy jobs do not require reading every newer build. */
+    private static final class HistoryReader {
+        private final JenkinsResolvedTarget target;
+        private final long deadline = System.nanoTime() + REQUEST_TIMEOUT.toNanos();
+        private int requests;
+
+        HistoryReader(JenkinsResolvedTarget target) { this.target = target; }
+
+        int seek(Instant anchor) {
+            if (atOrBefore(0, anchor)) return 0;
+            int low = 1, high = 100;
+            while (!atOrBefore(high, anchor)) {
+                low = high + 1;
+                if (high >= 1_048_576) throw new JenkinsConnectorException(JenkinsFailureKind.RESPONSE_INVALID,
+                        "Historical Jenkins index search bound was reached before the requested date");
+                high = Math.min(high * 2, 1_048_576);
+            }
+            while (low < high) {
+                int middle = low + (high - low) / 2;
+                if (atOrBefore(middle, anchor)) high = middle;
+                else low = middle + 1;
+            }
+            return low;
+        }
+
+        private boolean atOrBefore(int index, Instant anchor) {
+            JsonNode response = page(index, 1, false);
+            if (response == null || !response.path("builds").isArray()) throw new JenkinsConnectorException(
+                    JenkinsFailureKind.RESPONSE_INVALID, "Historical Jenkins metadata was incomplete");
+            JsonNode builds = response.path("builds");
+            if (builds.isEmpty()) return true;
+            JsonNode timestamp = builds.get(0).path("timestamp");
+            if (!timestamp.isIntegralNumber() || timestamp.asLong() <= 0) throw new JenkinsConnectorException(
+                    JenkinsFailureKind.RESPONSE_INVALID, "Historical Jenkins timestamp was unavailable");
+            return !Instant.ofEpochMilli(timestamp.asLong()).isAfter(anchor);
+        }
+
+        JsonNode page(int offset, int size, boolean details) {
+            long remaining = deadline - System.nanoTime();
+            if (++requests > 40 || remaining <= 0) throw new JenkinsConnectorException(JenkinsFailureKind.TIMEOUT,
+                    "Historical Jenkins metadata search reached its request or time bound");
+            String fields = details ? "number,result,timestamp,duration,url,building,actions[lastBuiltRevision[SHA1]]" : "timestamp";
+            String tree = "builds[" + fields + "]{" + offset + "," + (offset + size) + "}";
+            return execute("historical build metadata", () -> target.controller().client().get()
+                    .uri(uri -> uri.pathSegment(jobSegments(target.job(), "api", "json"))
+                            .queryParam("tree", "{tree}").build(Map.of("tree", tree)))
+                    .retrieve().onStatus(HttpStatusCode::is3xxRedirection, ignored -> unexpectedRedirect())
+                    .bodyToMono(JsonNode.class).block(Duration.ofNanos(remaining)));
+        }
+    }
+
+    @Override
     public List<DeploymentInfo> getLastBuilds(String service, Environment environment, int limit) {
         String safeService = ConnectorInputValidator.service(service);
         if (environment == null) throw new IllegalArgumentException("Environment is required");
@@ -139,10 +230,16 @@ public class LiveJenkinsConnector implements JenkinsConnector {
     }
 
     private static String findCommitSha(JsonNode build) {
+        String builtRevision = findBuiltRevision(build);
+        if (!builtRevision.isBlank()) return builtRevision;
         for (JsonNode item : build.path("changeSet").path("items")) {
             String sha = item.path("commitId").asText();
             if (!sha.isBlank()) return sha;
         }
+        return "";
+    }
+
+    private static String findBuiltRevision(JsonNode build) {
         for (JsonNode action : build.path("actions")) {
             String sha = action.path("lastBuiltRevision").path("SHA1").asText();
             if (!sha.isBlank()) return sha;

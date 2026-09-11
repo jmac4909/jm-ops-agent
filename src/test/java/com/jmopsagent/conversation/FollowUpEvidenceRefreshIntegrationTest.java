@@ -47,7 +47,7 @@ class FollowUpEvidenceRefreshIntegrationTest {
     }
 
     @Test
-    void targetedRefreshLimitPreventsRepeatedConnectorCollection() {
+    void laterTrafficQuestionsCanCollectWithinTheSharedEvidenceBudget() {
         Investigation investigation = investigations.createTrackingInvestigation("DEMO-TRACE-001", "TEST");
         orchestrator.investigate(investigation.getId());
         FollowUpExchange first = followUps.ask(investigation.getId(), "Show recent calls");
@@ -57,8 +57,8 @@ class FollowUpEvidenceRefreshIntegrationTest {
 
         assertThat(first.getTargetedEvidenceItems()).isPositive();
         assertThat(second.isTargetedEvidenceRequested()).isTrue();
-        assertThat(second.getTargetedEvidenceItems()).isZero();
-        assertThat(investigations.evidence(investigation.getId())).hasSize(evidenceAfterFirst);
+        assertThat(second.getTargetedEvidenceItems()).isPositive();
+        assertThat(investigations.evidence(investigation.getId())).hasSize(evidenceAfterFirst + 1);
     }
 
     @Test

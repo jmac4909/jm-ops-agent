@@ -49,8 +49,17 @@ public class Investigation {
     @Column(length = 256)
     private String trackingId;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean trackingIdUserSupplied;
+
     @Lob
     private String userProblem;
+
+    private UUID activeLookupEvidenceId;
+    private Instant evidenceScopeResolvedAt;
+
+    private Instant incidentStart;
+    private Instant incidentEnd;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
@@ -83,6 +92,9 @@ public class Investigation {
 
     @Column(nullable = false, columnDefinition = "integer default 0")
     private int splunkSearchCount;
+
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int sourceFileReadCount;
 
     @Lob
     private String finalDiagnosis;
@@ -135,6 +147,7 @@ public class Investigation {
         this.service = normalizeNullable(service);
         this.environment = Objects.requireNonNull(environment, "environment");
         this.trackingId = normalizeNullable(trackingId);
+        this.trackingIdUserSupplied = this.trackingId != null;
         this.userProblem = normalizeNullable(userProblem);
         validateRequiredInput();
     }
@@ -293,8 +306,66 @@ public class Investigation {
     public DeploymentEnvironment getEnvironment() { return environment; }
     public void setEnvironment(DeploymentEnvironment environment) { this.environment = environment; }
     public String getTrackingId() { return trackingId; }
-    public void setTrackingId(String trackingId) { this.trackingId = normalizeNullable(trackingId); }
+    public void setTrackingId(String trackingId) {
+        String value = normalizeNullable(trackingId);
+        if (!Objects.equals(value, this.trackingId) || value == null) trackingIdUserSupplied = false;
+        this.trackingId = value;
+        activeLookupEvidenceId = null;
+    }
+    public void setUserTrackingId(String value) { setTrackingId(value); trackingIdUserSupplied = trackingId != null; }
+    public boolean isTrackingIdUserSupplied() { return trackingIdUserSupplied; }
+    public UUID getActiveLookupEvidenceId() { return activeLookupEvidenceId; }
+    public void setActiveLookupEvidenceId(UUID value) { activeLookupEvidenceId = value; }
+    public void beginTrackingLookup() {
+        evidenceItems.stream().filter(item -> item.getId().equals(activeLookupEvidenceId)).forEach(EvidenceItem::supersedeForScopeChange);
+        activeLookupEvidenceId = null;
+        trackingId = null;
+        trackingIdUserSupplied = false;
+    }
+    public void resolveTarget(String service, DeploymentEnvironment environment) {
+        if (Objects.equals(this.service, service) && this.environment == environment) return;
+        evidenceItems.forEach(EvidenceItem::supersedeForScopeChange);
+        this.service = service;
+        this.environment = environment;
+        incidentStart = null;
+        incidentEnd = null;
+        trackingId = null;
+        trackingIdUserSupplied = false;
+        activeLookupEvidenceId = null;
+        claudeSessionId = null;
+        evidenceScopeResolvedAt = Instant.now();
+    }
     public String getUserProblem() { return userProblem; }
+    public Instant getEvidenceScopeResolvedAt() { return evidenceScopeResolvedAt == null ? startedAt : evidenceScopeResolvedAt; }
+    public Instant getIncidentStart() { return incidentStart; }
+    public Instant getIncidentEnd() { return incidentEnd; }
+    public boolean isRetrospective() { return incidentStart != null && incidentEnd != null; }
+    public IncidentWindow incidentWindow() {
+        return isRetrospective() ? new IncidentWindow(incidentStart, incidentEnd) : null;
+    }
+    public void setIncidentWindow(IncidentWindow window) {
+        if (status != InvestigationStatus.CREATED) {
+            throw new IllegalStateException("The incident window cannot change after investigation starts");
+        }
+        if (window != null && window.end().isAfter(startedAt)) {
+            throw new IllegalArgumentException("Incident times must be in the past");
+        }
+        incidentStart = window == null ? null : window.start();
+        incidentEnd = window == null ? null : window.end();
+    }
+
+    public void resolveIncidentWindow(IncidentWindow window, String reason) {
+        if (Objects.equals(window, incidentWindow())) return;
+        Instant resolvedAt = Instant.now();
+        if (window != null && window.end().isAfter(resolvedAt)) throw new IllegalArgumentException("Incident window must precede collection");
+        evidenceItems.forEach(EvidenceItem::supersedeForScopeChange);
+        claudeSessionId = null;
+        evidenceScopeResolvedAt = resolvedAt;
+        activeLookupEvidenceId = null;
+        incidentStart = window == null ? null : window.start();
+        incidentEnd = window == null ? null : window.end();
+        addEvent(InvestigationEvent.note(InvestigationEventType.ANALYSIS, reason));
+    }
     public void setUserProblem(String userProblem) { this.userProblem = normalizeNullable(userProblem); }
     public InvestigationStatus getStatus() { return status; }
     public void setStatus(InvestigationStatus status) { this.status = status; }
@@ -312,6 +383,7 @@ public class Investigation {
     public String getClaudeUsageMetadata() { return claudeUsageMetadata; }
     public String getClaudeError() { return claudeError; }
     public int getSplunkSearchCount() { return splunkSearchCount; }
+    public int getSourceFileReadCount() { return sourceFileReadCount; }
     public String getFinalDiagnosis() { return finalDiagnosis; }
     public void setFinalDiagnosis(String finalDiagnosis) { this.finalDiagnosis = normalizeNullable(finalDiagnosis); }
     public ConfidenceLevel getConfidence() { return confidence; }

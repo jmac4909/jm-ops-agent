@@ -28,6 +28,17 @@ import org.springframework.stereotype.Component;
 @Profile("local-mock")
 public class MockSplunkConnector implements SplunkConnector {
     @Override
+    public SplunkConnectorResult searchLatestTrackingIdDetailed(String service, Environment environment, EvidenceQuery query, SplunkSearchPermit permit) {
+        String safeService = ConnectorInputValidator.service(service);
+        if (!permit.tryAcquire()) return SplunkConnectorResult.limitReached();
+        ConnectorEvidence item = evidence("latest-demo-call", EvidenceSource.SPLUNK, EvidenceType.RECENT_BUSINESS_CALLS,
+                query.to().minusSeconds(1), safeService, environment, "Latest demo application call",
+                "trackingId=" + TRACKING_ID + " statusCode=200", Map.of("trackingId", TRACKING_ID, "httpStatus", "200",
+                        "sourceFormat", "application-log", "selection", "latest-qualifying-event-in-window"), .9);
+        return new SplunkConnectorResult(new SplunkSearchResult(List.of(item), List.of(), 1, false), SplunkSearchOutcome.SUCCESS);
+    }
+
+    @Override
     public SplunkSearchResult searchByTrackingId(String trackingId, Environment environment, EvidenceQuery query) {
         String safeTrackingId = ConnectorInputValidator.trackingId(trackingId);
         if (!TRACKING_ID.equalsIgnoreCase(safeTrackingId)) {

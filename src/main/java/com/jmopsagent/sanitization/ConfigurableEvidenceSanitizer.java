@@ -19,10 +19,12 @@ public class ConfigurableEvidenceSanitizer implements EvidenceSanitizer {
     private static final String TRUNCATION_NOTICE = "\n[CONTENT TRUNCATED BY JM OPS AGENT]";
     private static final String BODY_MARKER = "[REDACTED:BODY]";
     private static final JsonMapper LOG_JSON = JsonMapper.builder().build();
+    private static final Pattern FEIGN_PREFIX = Pattern.compile("\\[([A-Za-z0-9_.]+#[A-Za-z0-9_]+)[^\\]]*]\\s*");
+    private static final Pattern JSON_ARRAY_SCALAR = Pattern.compile("(?:-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|true|false|null)(?:\\s*[,\\]]|\\s*$)");
     private static final List<String> SAFE_LOG_FIELDS = List.of(
             "timestamp", "_time", "level", "severity", "logger", "service", "service_name", "app",
             "trackingId", "tracking_id", "operation", "outcome", "status", "http_status", "message",
-            "error", "exception", "stack_trace");
+            "error", "exception", "stack_trace", "operationOutcome");
 
     private final SanitizationProperties properties;
     private final List<RedactionRule> rules;
@@ -86,8 +88,44 @@ public class ConfigurableEvidenceSanitizer implements EvidenceSanitizer {
 
         StringBuilder reduced = new StringBuilder(content.length());
         int omitted = 0;
+        java.util.Map<String, Integer> feignBodies = new java.util.HashMap<>();
+        java.util.Map<String, Integer> prefixedBodies = new java.util.LinkedHashMap<>();
         for (String line : content.split("\\R", -1)) {
+            String bodyPrefix = prefixedBodies.keySet().stream().filter(line::startsWith).findFirst().orElse(null);
+            if (bodyPrefix != null) {
+                int depth = prefixedBodies.get(bodyPrefix) + jsonDepthChange(line.substring(bodyPrefix.length()));
+                if (depth <= 0) prefixedBodies.remove(bodyPrefix); else prefixedBodies.put(bodyPrefix, depth);
+                reduced.append(bodyPrefix).append(BODY_MARKER).append('\n');
+                omitted++;
+                continue;
+            }
+            Matcher feign = FEIGN_PREFIX.matcher(line);
+            if (feign.find()) {
+                String key = feign.group(1);
+                String payload = line.substring(feign.end()).strip();
+                if (feignBodies.containsKey(key) && payload.contains("END HTTP")) feignBodies.remove(key);
+                if (feignBodies.containsKey(key) || payload.equals("{") || payload.equals("[")) {
+                    int depth = feignBodies.getOrDefault(key, 0) + jsonDepthChange(payload);
+                    if (depth <= 0) feignBodies.remove(key); else feignBodies.put(key, depth);
+                    reduced.append(line, 0, feign.end()).append(BODY_MARKER).append('\n');
+                    omitted++;
+                    continue;
+                }
+            }
             StructuredReduction item = reduceJson(line.trim());
+            // Feign prefixes and timestamp/logger prefixes often precede an otherwise standalone JSON body.
+            for (int jsonStart = 1; item == null && jsonStart < line.length(); jsonStart++) {
+                if (line.charAt(jsonStart) != '{' && line.charAt(jsonStart) != '[') continue;
+                if (!looksLikeStructuredJson(line.substring(jsonStart))) continue;
+                if (line.substring(jsonStart).strip().equals("{") || line.substring(jsonStart).strip().equals("[")) {
+                    String prefix = line.substring(0, jsonStart);
+                    prefixedBodies.put(prefix, 1);
+                    item = new StructuredReduction(prefix + BODY_MARKER, 1);
+                    break;
+                }
+                StructuredReduction suffix = reduceJson(line.substring(jsonStart));
+                if (suffix != null) item = new StructuredReduction(line.substring(0, jsonStart) + suffix.content(), suffix.omittedBodies());
+            }
             if (item == null) reduced.append(line);
             else {
                 reduced.append(item.content());
@@ -144,8 +182,25 @@ public class ConfigurableEvidenceSanitizer implements EvidenceSanitizer {
         while (index < candidate.length() && Character.isWhitespace(candidate.charAt(index))) index++;
         if (index >= candidate.length()) return true;
         char next = candidate.charAt(index);
-        return next == '{' || next == '[' || next == '"' || next == ']' || next == '-'
-                || Character.isDigit(next) || next == 't' || next == 'f' || next == 'n';
+        int closing = candidate.indexOf(']');
+        if (closing > index && !candidate.substring(closing + 1).isBlank()
+                && candidate.substring(1, closing).matches("[A-Za-z0-9_.-]+")) return false;
+        return next == '{' || next == '[' || next == '"' || next == ']'
+                || JSON_ARRAY_SCALAR.matcher(candidate.substring(index)).lookingAt();
+    }
+
+    private static int jsonDepthChange(String text) {
+        int depth = 0;
+        boolean quoted = false;
+        boolean escaped = false;
+        for (char value : text.toCharArray()) {
+            if (escaped) { escaped = false; continue; }
+            if (quoted && value == '\\') { escaped = true; continue; }
+            if (value == '"') { quoted = !quoted; continue; }
+            if (!quoted && (value == '{' || value == '[')) depth++;
+            if (!quoted && (value == '}' || value == ']')) depth--;
+        }
+        return depth;
     }
 
     private static List<RedactionRule> createRules(SanitizationProperties properties) {

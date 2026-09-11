@@ -5,7 +5,6 @@ import com.jmopsagent.claude.BoundedReasoningEvidenceMapper;
 import com.jmopsagent.claude.ClaudeFollowUpRequest;
 import com.jmopsagent.claude.ClaudeInvocationResult;
 import com.jmopsagent.claude.ReasoningEvidence;
-import com.jmopsagent.domain.EvidenceItem;
 import com.jmopsagent.domain.Investigation;
 import com.jmopsagent.domain.InvestigationEventType;
 import com.jmopsagent.orchestration.InvestigationApplicationService;
@@ -29,6 +28,7 @@ public class FollowUpConversationService {
     private final BoundedReasoningEvidenceMapper reasoningEvidenceMapper;
     private final InvestigationLimitsProperties limits;
     private final TargetedFollowUpEvidenceService targetedEvidence;
+    private final com.jmopsagent.orchestration.InvestigationOrchestrator orchestrator;
 
     public FollowUpConversationService(FollowUpExchangeRepository repository,
                                        InvestigationApplicationService investigations,
@@ -37,7 +37,8 @@ public class FollowUpConversationService {
                                        EvidenceSanitizer sanitizer,
                                        BoundedReasoningEvidenceMapper reasoningEvidenceMapper,
                                        InvestigationLimitsProperties limits,
-                                       TargetedFollowUpEvidenceService targetedEvidence) {
+                                       TargetedFollowUpEvidenceService targetedEvidence,
+                                       com.jmopsagent.orchestration.InvestigationOrchestrator orchestrator) {
         this.repository = repository;
         this.investigations = investigations;
         this.state = state;
@@ -46,6 +47,7 @@ public class FollowUpConversationService {
         this.reasoningEvidenceMapper = reasoningEvidenceMapper;
         this.limits = limits;
         this.targetedEvidence = targetedEvidence;
+        this.orchestrator = orchestrator;
     }
 
     public FollowUpExchange ask(UUID investigationId, String rawQuestion) {
@@ -60,35 +62,59 @@ public class FollowUpConversationService {
         }
         SanitizationResult safeQuestion = sanitizer.sanitize(rawQuestion);
         FollowUpExchange exchange = saveQuestion(investigationId, safeQuestion);
-        boolean recentRequestsQuestion = requestsRecentBusinessCalls(safeQuestion.sanitizedContent());
-        TargetedFollowUpEvidenceService.CollectionResult refresh = null;
-        if (recentRequestsQuestion) {
-            long priorRefreshes = repository.countByInvestigationIdAndTargetedEvidenceRequestedTrue(investigationId);
-            if (priorRefreshes < limits.getMaxFollowUpEvidenceCollections()) {
-                refresh = targetedEvidence.collectRecentBusinessCalls(investigation);
-            } else {
-                refresh = new TargetedFollowUpEvidenceService.CollectionResult(false, 0,
-                        "The targeted follow-up evidence refresh limit was reached");
-                state.note(investigationId, InvestigationEventType.LIMIT_REACHED,
-                        "Skipped a requested recent-request refresh because its follow-up limit was reached");
-            }
-            exchange = recordTargetedEvidence(exchange.getId(), refresh.collectedItems());
+        java.time.Instant deadline = java.time.Instant.now().plus(limits.getMaxWallClock());
+        var budget = com.jmopsagent.orchestration.EvidenceCollectionBudget.followUp(state.snapshotWithEvidence(investigationId), limits);
+        var clueEvidence = orchestrator.collectFollowUpEvidence(investigationId, safeQuestion.sanitizedContent(), List.of(), deadline, budget, false);
+        investigation = investigations.get(investigationId);
+        int collectedItems = clueEvidence.collectedItems();
+        if (clueEvidence.directAnswer() != null) {
+            if (collectedItems > 0) exchange = recordTargetedEvidence(exchange.getId(), collectedItems);
+            state.note(investigationId, InvestigationEventType.ANALYSIS, "Answered the follow-up from a focused lookup or requested clarification");
+            return saveAnswer(exchange.getId(), sanitizer.sanitize(clueEvidence.directAnswer()));
         }
-        List<EvidenceItem> evidenceItems = investigations.evidence(investigationId);
-        List<ReasoningEvidence> evidence = reasoningEvidenceMapper.map(evidenceItems);
-        ClaudeInvocationResult result = claude.followUp(new ClaudeFollowUpRequest(investigationId,
-                safeQuestion.sanitizedContent(), investigation.getClaudeSessionId(), investigation.getFinalDiagnosis(), evidence,
-                refresh != null && refresh.collectedItems() > 0, refresh == null ? null : refresh.description()));
-        state.recordClaude(investigationId, result);
-        String answer = result.successful() ? result.decision().summary()
+        boolean recentRequestsQuestion = requestsRecentBusinessCalls(safeQuestion.sanitizedContent())
+                || investigation.isRetrospective() && requestsIncidentBusinessCalls(safeQuestion.sanitizedContent());
+        TargetedFollowUpEvidenceService.CollectionResult refresh = null;
+        if (recentRequestsQuestion && java.time.Instant.now().isBefore(deadline)) {
+            refresh = targetedEvidence.collectRecentBusinessCalls(investigation, budget);
+            collectedItems += refresh.collectedItems();
+        }
+        if (collectedItems > 0 || recentRequestsQuestion) exchange = recordTargetedEvidence(exchange.getId(), collectedItems);
+        ClaudeInvocationResult result = null;
+        String collectionContext = clueEvidence.limitation();
+        if (refresh != null) collectionContext = (collectionContext == null ? "" : collectionContext + "; ") + refresh.description();
+        String stopReason = null;
+        for (int iteration = 1; iteration <= limits.getMaxClaudeIterations(); iteration++) {
+            if (java.time.Instant.now().isAfter(deadline)) { stopReason = "Follow-up time budget reached"; break; }
+            List<ReasoningEvidence> evidence = reasoningEvidenceMapper.map(investigations.evidence(investigationId));
+            result = claude.followUp(new ClaudeFollowUpRequest(investigationId,
+                    safeQuestion.sanitizedContent(), investigations.get(investigationId).getClaudeSessionId(),
+                    investigation.getFinalDiagnosis(), evidence, collectedItems > 0, collectionContext));
+            state.recordClaude(investigationId, result);
+            if (!result.successful() || result.decision().status() == com.jmopsagent.claude.ReasoningStatus.COMPLETE) break;
+            if (iteration == limits.getMaxClaudeIterations()) { stopReason = "Follow-up reasoning budget reached"; break; }
+            List<com.jmopsagent.claude.NextEvidenceRequest> requests = result.decision().nextEvidenceRequests();
+            if (result.decision().status() == com.jmopsagent.claude.ReasoningStatus.CODE_INVESTIGATION_RECOMMENDED && requests.isEmpty()) {
+                requests = List.of(new com.jmopsagent.claude.NextEvidenceRequest(com.jmopsagent.claude.EvidenceRequestType.RELEVANT_CODE_FILES,
+                        investigation.getService(), "Inspect source to answer the follow-up"));
+            }
+            var batch = orchestrator.collectFollowUpEvidence(investigationId, null, requests, deadline, budget, clueEvidence.explicitCurrent());
+            collectedItems += batch.collectedItems();
+            exchange = recordTargetedEvidence(exchange.getId(), collectedItems);
+            collectionContext = "Collected additional approved evidence for the follow-up. "
+                    + (batch.limitation() == null ? "" : batch.limitation());
+            if (batch.collectedItems() == 0) { stopReason = "No additional evidence was available within the investigation's scope and budgets"; break; }
+        }
+        String answer = result != null && result.successful() ? result.decision().summary()
                 : "The follow-up could not be answered by Claude Code. "
-                + (refresh == null ? "No live evidence was recollected." : refresh.description());
+                + (collectionContext == null ? "No evidence was recollected." : collectionContext);
+        if (stopReason != null) answer += " Evidence gap: " + stopReason;
         SanitizationResult safeAnswer = sanitizer.sanitize(answer);
         FollowUpExchange completed = saveAnswer(exchange.getId(), safeAnswer);
-        String auditMessage = refresh == null
-                ? "Answered a follow-up using stored sanitized evidence; no connectors were queried"
-                : refresh.attempted()
-                ? "Answered a follow-up after the explicitly requested bounded read-only refresh"
+        String auditMessage = collectedItems == 0 && refresh == null
+                ? "Answered a follow-up using stored sanitized evidence; no additional items were collected"
+                : collectedItems > 0 || refresh != null && refresh.attempted()
+                ? "Answered a follow-up after bounded read-only evidence collection"
                 : "Answered a follow-up using stored evidence; the requested refresh was skipped by a configured limit";
         state.note(investigationId, InvestigationEventType.ANALYSIS, auditMessage);
         return completed;
@@ -122,10 +148,16 @@ public class FollowUpConversationService {
         if (question == null || question.isBlank()) return false;
         String normalized = question.toLowerCase(java.util.Locale.ROOT);
         boolean asksForTimeBoundedData = normalized.contains("recent") || normalized.contains("latest")
-                || normalized.contains("currently") || normalized.contains("right now");
+                || normalized.contains("current") || normalized.contains("right now");
         boolean asksForTraffic = normalized.contains("request") || normalized.contains("call")
                 || normalized.contains("traffic");
         return asksForTimeBoundedData && asksForTraffic;
+    }
+
+    private static boolean requestsIncidentBusinessCalls(String question) {
+        String normalized = question.toLowerCase(java.util.Locale.ROOT);
+        return (normalized.contains("incident") || normalized.contains("during") || normalized.contains("historical"))
+                && (normalized.contains("request") || normalized.contains("call") || normalized.contains("traffic"));
     }
 
 }

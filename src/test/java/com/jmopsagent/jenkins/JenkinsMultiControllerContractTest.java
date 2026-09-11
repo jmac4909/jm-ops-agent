@@ -79,6 +79,83 @@ class JenkinsMultiControllerContractTest {
     }
 
     @Test
+    void historicalMetadataUsesOneBoundedRequestAndTheBuiltRevision() {
+        RecordingServer only = server("history-controller");
+        JenkinsControllerRegistry controllers = new JenkinsControllerRegistry(WebClient.builder(),
+                Map.of("history-controller", configuration(only.baseUrl(), "reader", "token")), false);
+        LiveJenkinsConnector connector = new LiveJenkinsConnector(controllers, registry("""
+                services:
+                  - service: sample-api
+                    jenkins.job: Team/Sample/Deploy
+                """), "{service}-{environment}-deploy");
+        assertThat(connector.getDeploymentHistory("sample-api", Environment.TEST)).singleElement().satisfies(build -> {
+            assertThat(build.commitSha()).isEqualTo("f00ba4");
+            assertThat(build.metadata()).containsEntry("completedAt", "2023-11-14T22:14:20Z");
+        });
+        assertThat(only.requests()).singleElement().satisfies(request ->
+                assertThat(URLDecoder.decode(request.rawQuery(), StandardCharsets.UTF_8))
+                        .contains("timestamp,duration", "{0,100}").doesNotContain("changeSet"));
+    }
+
+    @Test
+    void seeksMonthsOldRetainedBuildsWithoutScanningThousandsOfNewerBuildDetails() {
+        RecordingServer only = server("history-seek");
+        java.time.Instant newest = java.time.Instant.parse("2026-09-01T00:00:00Z");
+        only.historyResponse = query -> indexedHistory(query, newest, 5000);
+        LiveJenkinsConnector connector = historyConnector(only);
+        var anchor = newest.minusSeconds(4000L * 3600).plusSeconds(30);
+        List<DeploymentInfo> builds = connector.getDeploymentHistory("sample-api", Environment.TEST, anchor);
+        assertThat(builds).hasSize(100);
+        assertThat(builds).anySatisfy(build -> {
+            assertThat(build.buildNumber()).isEqualTo(9999 - 4001);
+            assertThat(build.metadata()).containsEntry("completedAt", newest.minusSeconds(4001L * 3600).plusSeconds(60).toString());
+        });
+        assertThat(builds).allSatisfy(build -> assertThat(build.metadata().get("coverage")).contains("sought near", "incomplete", "not deployment attestation").doesNotContain("most recent"));
+        assertThat(only.requests()).hasSizeLessThan(30).allSatisfy(request -> {
+            String query = URLDecoder.decode(request.rawQuery(), StandardCharsets.UTF_8);
+            assertThat(query).startsWith("tree=builds[").doesNotContain("changeSet");
+            assertThat(request.rawPath()).endsWith("/api/json");
+        });
+        assertThat(only.requests().stream().filter(request -> URLDecoder.decode(request.rawQuery(), StandardCharsets.UTF_8).contains("duration"))).hasSize(1);
+    }
+
+    @Test
+    void historicalSeekReportsExhaustedRetentionAndRejectsMissingTimestamps() {
+        RecordingServer only = server("history-exhausted");
+        java.time.Instant newest = java.time.Instant.parse("2026-09-01T00:00:00Z");
+        only.historyResponse = query -> indexedHistory(query, newest, 20);
+        LiveJenkinsConnector connector = historyConnector(only);
+        var anchor = java.time.Instant.parse("2024-01-01T00:00:00Z");
+        assertThat(connector.getDeploymentHistory("sample-api", Environment.TEST, anchor))
+                .allSatisfy(build -> assertThat(build.timestamp()).isAfter(anchor));
+        assertThat(only.requests()).hasSizeLessThan(12);
+        only.historyResponse = query -> "{\"builds\":[{\"timestamp\":null}]}";
+        assertThatThrownBy(() -> connector.getDeploymentHistory("sample-api", Environment.TEST, anchor))
+                .isInstanceOf(JenkinsConnectorException.class).hasMessageContaining("timestamp was unavailable");
+    }
+
+    private LiveJenkinsConnector historyConnector(RecordingServer only) {
+        return new LiveJenkinsConnector(new JenkinsControllerRegistry(WebClient.builder(),
+                Map.of("history", configuration(only.baseUrl(), "reader", "token")), false), registry("""
+                services:
+                  - service: sample-api
+                    jenkins.job: Team/Sample/Deploy
+                """), "{service}-{environment}-deploy");
+    }
+
+    private static String indexedHistory(String query, java.time.Instant newest, int retained) {
+        var range = java.util.regex.Pattern.compile("\\{(\\d+),(\\d+)\\}").matcher(query);
+        if (!range.find()) throw new IllegalArgumentException("Expected bounded range");
+        int from = Integer.parseInt(range.group(1)), to = Math.min(Integer.parseInt(range.group(2)), retained);
+        List<String> builds = new ArrayList<>();
+        for (int index = from; index < to; index++) {
+            builds.add("{\"number\":" + (9999 - index) + ",\"timestamp\":" + newest.minusSeconds(index * 3600L).toEpochMilli()
+                    + ",\"duration\":60000,\"result\":\"SUCCESS\",\"building\":false,\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"abc123\"}}]}");
+        }
+        return "{\"builds\":[" + String.join(",", builds) + "]}";
+    }
+
+    @Test
     void defaultsOnlyWhenExactlyOneControllerIsConfigured() {
         RecordingServer only = server("only-controller");
         JenkinsControllerRegistry controllers = new JenkinsControllerRegistry(WebClient.builder(),
@@ -209,6 +286,7 @@ class JenkinsMultiControllerContractTest {
         private final String redirectLocation;
         private final HttpServer server;
         private final List<Request> requests = Collections.synchronizedList(new ArrayList<>());
+        private java.util.function.Function<String, String> historyResponse;
 
         private RecordingServer(String controllerPath, int status, String redirectLocation) {
             this.controllerPath = controllerPath;
@@ -238,14 +316,16 @@ class JenkinsMultiControllerContractTest {
             byte[] response;
             if (status != 200) {
                 response = "denied".getBytes(StandardCharsets.UTF_8);
+            } else if (historyResponse != null) {
+                response = historyResponse.apply(URLDecoder.decode(exchange.getRequestURI().getRawQuery(), StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8);
             } else if (exchange.getRequestURI().getPath().contains("/wfapi/describe")) {
                 response = "{\"stages\":[]}".getBytes(StandardCharsets.UTF_8);
             } else {
                 String buildUrl = baseUrl() + "/job/sample/17/";
                 response = ("{\"builds\":[{\"number\":17,\"result\":\"SUCCESS\","
-                        + "\"timestamp\":1700000000000,\"url\":\"" + buildUrl + "\","
+                        + "\"timestamp\":1700000000000,\"duration\":60000,\"url\":\"" + buildUrl + "\","
                         + "\"building\":false,\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"f00ba4\"}}],"
-                        + "\"changeSet\":{\"items\":[]}}]}").getBytes(StandardCharsets.UTF_8);
+                        + "\"changeSet\":{\"items\":[{\"commitId\":\"aaa111\"}]}}]}").getBytes(StandardCharsets.UTF_8);
             }
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, response.length);

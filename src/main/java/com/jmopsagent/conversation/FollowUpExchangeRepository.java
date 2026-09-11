@@ -8,5 +8,4 @@ import java.util.UUID;
 public interface FollowUpExchangeRepository extends JpaRepository<FollowUpExchange, UUID> {
     List<FollowUpExchange> findByInvestigationIdOrderByAskedAtAsc(UUID investigationId);
     long countByInvestigationId(UUID investigationId);
-    long countByInvestigationIdAndTargetedEvidenceRequestedTrue(UUID investigationId);
 }

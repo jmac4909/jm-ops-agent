@@ -10,7 +10,7 @@ public final class ReadOnlyCliPolicy {
             "apply", "create", "delete", "edit", "patch", "replace", "scale", "set", "exec", "cp",
             "port-forward", "proxy", "attach", "run", "expose", "autoscale", "drain", "cordon", "uncordon",
             "taint", "label", "annotate", "certificate", "top");
-    private static final Set<String> CF_ALLOWED = Set.of("app", "apps", "logs", "env", "routes");
+    private static final Set<String> CF_ALLOWED = Set.of("app", "apps", "logs", "env", "routes", "events");
 
     private ReadOnlyCliPolicy() {
     }
@@ -42,6 +42,10 @@ public final class ReadOnlyCliPolicy {
         }
         if (!CF_ALLOWED.contains(command)) {
             throw rejected("CF operation is not on the read-only allowlist");
+        }
+        if (command.equals("events") && (arguments.size() != 2
+                || !arguments.get(1).matches("[a-z0-9][a-z0-9-]{0,62}"))) {
+            throw rejected("CF events requires one validated application name");
         }
     }
 

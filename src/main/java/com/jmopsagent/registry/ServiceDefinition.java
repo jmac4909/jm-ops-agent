@@ -39,6 +39,10 @@ public final class ServiceDefinition {
         return Collections.unmodifiableSet(aliases.keySet());
     }
 
+    public List<String> dependencies() {
+        return attributeValues("dependencies");
+    }
+
     /** Metadata for aliases, including whether each value was manually configured or discovered. */
     public Map<String, RegistryValue> aliasesWithProvenance() {
         return Collections.unmodifiableMap(aliases);

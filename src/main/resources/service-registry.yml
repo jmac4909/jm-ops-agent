@@ -1,5 +1,6 @@
 services:
   - service: edge-gateway
+    dependencies: [identity-service]
     runtime:
       platform:
         DEV: EKS
@@ -34,6 +35,7 @@ services:
       livenessPath: /actuator/health/liveness
 
   - service: identity-service
+    dependencies: [catalog-service]
     runtime:
       platform:
         DEV: EKS
@@ -68,6 +70,7 @@ services:
       livenessPath: /actuator/health/liveness
 
   - service: catalog-service
+    dependencies: []
     runtime:
       platform:
         DEV: EKS

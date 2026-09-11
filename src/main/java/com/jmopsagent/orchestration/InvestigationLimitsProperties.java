@@ -14,8 +14,26 @@ public class InvestigationLimitsProperties {
     private int maxCodeFiles = 8;
     private int maxHistoricalIncidents = 5;
     private int maxFollowUps = 10;
-    private int maxFollowUpEvidenceCollections = 1;
     private Duration trackingSearchWindow = Duration.ofHours(72);
+    private int maxDependencyServices = 3;
+    private Duration commitSearchWindow = Duration.ofDays(30);
+    private Duration historyDiscoveryWindow = Duration.ofDays(30);
+
+    public Duration getHistoryDiscoveryWindow() { return historyDiscoveryWindow; }
+    public void setHistoryDiscoveryWindow(Duration value) {
+        if (value == null || value.compareTo(Duration.ofDays(1)) < 0 || value.compareTo(Duration.ofDays(90)) > 0)
+            throw new IllegalArgumentException("historyDiscoveryWindow must be between one and 90 days");
+        historyDiscoveryWindow = value;
+    }
+
+    public int getMaxDependencyServices() { return maxDependencyServices; }
+    public void setMaxDependencyServices(int value) { maxDependencyServices = bounded(value, 10, "maxDependencyServices"); }
+    public Duration getCommitSearchWindow() { return commitSearchWindow; }
+    public void setCommitSearchWindow(Duration value) {
+        if (value == null || value.compareTo(Duration.ofDays(1)) < 0 || value.compareTo(Duration.ofDays(90)) > 0)
+            throw new IllegalArgumentException("commitSearchWindow must be between one and 90 days");
+        commitSearchWindow = value;
+    }
 
     public int getMaxClaudeIterations() { return maxClaudeIterations; }
     public void setMaxClaudeIterations(int value) { this.maxClaudeIterations = bounded(value, 10, "maxClaudeIterations"); }
@@ -33,10 +51,6 @@ public class InvestigationLimitsProperties {
     public void setMaxHistoricalIncidents(int value) { this.maxHistoricalIncidents = bounded(value, 50, "maxHistoricalIncidents"); }
     public int getMaxFollowUps() { return maxFollowUps; }
     public void setMaxFollowUps(int value) { this.maxFollowUps = bounded(value, 50, "maxFollowUps"); }
-    public int getMaxFollowUpEvidenceCollections() { return maxFollowUpEvidenceCollections; }
-    public void setMaxFollowUpEvidenceCollections(int value) {
-        this.maxFollowUpEvidenceCollections = bounded(value, 10, "maxFollowUpEvidenceCollections");
-    }
     public Duration getTrackingSearchWindow() { return trackingSearchWindow; }
     public void setTrackingSearchWindow(Duration value) {
         if (value == null || value.compareTo(Duration.ofMinutes(1)) < 0

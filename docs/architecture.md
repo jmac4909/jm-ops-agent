@@ -31,11 +31,11 @@ The Spring application is the policy enforcement point. Claude never receives co
 
 ## Investigation workflow
 
-An `Investigation` records its type, service/environment scope, optional tracking ID, user problem, state transitions, Claude execution metadata, diagnosis, confidence, category, recommendations, feedback, actual root cause, and successful remediation. Statuses cover discovery, evidence collection, analysis, requests for more evidence, explicit code investigation, completion, and safe failure.
+An `Investigation` records its type, service/environment scope, optional tracking ID, user problem, state transitions, Claude execution metadata, diagnosis, confidence, category, recommendations, feedback, actual root cause, and successful remediation. Statuses cover discovery, evidence collection, analysis, requests for more evidence, source inspection, completion, and safe failure.
 
 For a tracking-ID trace, the orchestrator:
 
-1. searches a bounded four-hour Splunk window and expands once to the configured maximum only after a successful no-data result;
+1. searches the resolved incident window, or starts with four hours and expands through configured tracking/history bounds after successful no-data results;
 2. orders normalized trace events and finds the first meaningful failure;
 3. restricts later service requests to names observed in that trace/registry scope;
 4. localizes the failing service;
@@ -68,6 +68,8 @@ The shared sanitizer covers authorization headers, bearer/JWT tokens, cookies, p
 
 Documentation and historical incidents have lower authority than live evidence. Confirmed feedback ranks above unconfirmed diagnoses, but remains advisory context rather than guaranteed truth.
 
+Explicit retrospective investigations persist nullable incident start/end timestamps alongside the ordinary investigation. They collect retained incident-time evidence without requiring a prior agent run. Each service's first concrete failure anchors its historical Jenkins candidate; saved candidates and application-created dependency edges survive code-escalation reloads. Current snapshots and probes are excluded, retained CF event listings disclose their coverage limits, and missing evidence yields UNKNOWN. Recovery comparisons have a creation-time-frozen cutoff. See [Retrospective investigations](retrospective-investigations.md) for source coverage, including the current lack of historical Kubernetes application-log support.
+
 ## Read-only process boundary
 
 `JavaProcessRunner` uses `ProcessBuilder` with an executable and argument list—never a shell command string. Standard input, standard output, and standard error are handled separately with UTF-8-safe bounds; processes have timeouts; and executable-not-found errors are converted into safe results. Operational CLIs retain the environment they need for their own approved authentication, while the Claude child receives only an explicit workstation/GCP Vertex allowlist; connector tokens and unrelated application secrets are removed before process start. TAS reads receive one registry-selected, isolated `CF_HOME`; the expected DEV/TEST API, org, and space are verified before every read. Same-home calls are serialized, independently targeted homes may run concurrently, and conflicting target definitions sharing a home are rejected before execution.
@@ -75,14 +77,16 @@ Documentation and historical incidents have lower authority than live evidence. 
 CLI connector methods are semantic. Defense-in-depth command policies apply after argument construction:
 
 - kubectl: `get`, `logs`, and `rollout status` only;
-- CF CLI: argument-free `target` verification plus `app`, `apps`, `logs`, opt-in `env`, and `routes` only;
+- CF CLI: argument-free `target` verification plus `app`, `apps`, `logs`, `events`, opt-in `env`, and `routes` only;
 - Claude: bare print/JSON mode, empty tool set, MCP disallowed, safe mode, optional `dontAsk`, bounded turns, and no dangerous permission bypass.
 
 The system contains no controller or Claude request type for deployment, restart, delete, edit, rerun, database write, or credential mutation.
 
 ## Budgets
 
-Defaults are three Claude iterations, two minutes wall-clock time, 50 evidence items, 200 log events, five persisted outbound Splunk searches, a 72-hour maximum tracking window, eight code files, five historical incidents, ten follow-up questions, and one targeted follow-up evidence refresh per investigation. Every outbound Splunk request, including an internal fallback, must atomically acquire its own investigation-wide permit. Each connector also applies request/output bounds. Ordinary follow-ups use stored sanitized evidence. Only an explicit recent-request/call/traffic question can invoke the single allowlisted refresh: TAS uses metadata-only Splunk evidence, while Kubernetes uses bounded pod logs and labels that weaker coverage. At a limit, the system records the limitation and returns the best-supported conclusion available instead of looping indefinitely.
+Registered dependencies are traversed breadth-first with cycle detection and a default cap of three additional services. Their connector calls share the active user turn's bounded evidence-collection allowance, with cumulative persisted audit counters. Branch history is a bounded advisory sample over 30 days; configuration-repository content is not verified runtime configuration. Registered GET probes retain status and selected response structure only.
+
+Defaults are three Claude iterations per reasoning turn, two minutes wall-clock time, 50 evidence items, 200 log events, five persisted outbound Splunk searches, a 72-hour tracking/business-call window, a 30-day automatic history discovery bound, eight persisted source-file reads, five historical incidents, and ten follow-up questions. Every outbound Splunk request, including an internal fallback, must atomically acquire its own investigation-wide permit. Each connector also applies request/output bounds. Follow-ups can request additional evidence through the orchestration dispatcher; a traffic question also gets a bounded sample before reasoning. Date/tracking clues resolve first. TAS traffic uses metadata-only Splunk evidence, while Kubernetes uses bounded pod logs and labels that weaker coverage. At a limit, the system records the limitation and returns the best-supported conclusion available instead of looping indefinitely.
 
 ## Persistence and future PostgreSQL migration
 

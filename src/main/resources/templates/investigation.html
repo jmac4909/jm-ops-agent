@@ -43,6 +43,10 @@
                     </div>
                     <p class="investigation-question" th:if="${investigation.userProblem != null and !#strings.isEmpty(investigation.userProblem)}" th:text="${investigation.userProblem}">Catalog Service is returning 500s after the latest deployment.</p>
                     <p class="investigation-question" th:if="${investigation.trackingId != null and !#strings.isEmpty(investigation.trackingId)}">Tracking ID <code th:text="${investigation.trackingId}">DEMO-TRACE-001</code></p>
+                    <p class="investigation-question" th:if="${investigation.retrospective}">Evidence window (UTC):
+                        <time th:text="${investigation.incidentStart}"></time> to <time th:text="${investigation.incidentEnd}"></time>.
+                        The agent uses this period to correlate the failure and changes.
+                    </p>
                 </div>
                 <div class="header-actions">
                     <a class="button button--secondary" th:href="@{/}" href="/">
@@ -86,7 +90,7 @@
                     </li>
                     <li data-stage="COMPLETED">
                         <span class="progress-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg></span>
-                        <span><strong>Diagnosis prepared</strong><small>Supported next actions</small></span>
+                        <span><strong>Result prepared</strong><small>Supported next actions</small></span>
                     </li>
                 </ol>
                 <p class="progress-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5.1 3.4 8.7 8 10 4.6-1.3 8-4.9 8-10V6l-8-3Z"></path></svg> Only evidence collection activity is shown. Internal model reasoning is never displayed.</p>
@@ -98,8 +102,8 @@
                         <div class="diagnosis-accent" aria-hidden="true"></div>
                         <div class="section-heading section-heading--inline">
                             <div>
-                                <p class="eyebrow">Diagnosis</p>
-                                <h2 id="diagnosis-heading">Likely root cause</h2>
+                                <p class="eyebrow">Findings</p>
+                                <h2 id="diagnosis-heading">Investigation result</h2>
                             </div>
                             <div class="diagnosis-badges">
                                 <span class="category-badge" th:if="${investigation.rootCauseCategory != null}" th:text="${#strings.replace(investigation.rootCauseCategory, '_', ' ')}">CONFIG</span>
@@ -285,24 +289,11 @@
                         </div>
                     </section>
 
-                    <section class="rail-card code-card" aria-labelledby="code-heading" th:if="${#strings.toString(investigation.status) == 'COMPLETED' and investigation.service != null and !#strings.isEmpty(investigation.service) and (#strings.toString(investigation.rootCauseCategory) == 'CODE' or #strings.toString(investigation.rootCauseCategory) == 'UNKNOWN')}">
-                        <div class="rail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 9-4 3 4 3m8-6 4 3-4 3m-2-9-4 12"></path></svg></div>
-                        <h2 id="code-heading">Need source-level detail?</h2>
-                        <p>Inspect only the deployed revision and code paths identified by operational evidence.</p>
-                        <form th:action="@{/investigations/{id}/code(id=${investigation.id})}" action="/investigations/1/code" method="post" data-submit-form>
-                            <button class="button button--secondary button--full" type="submit">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18 3 12l6-6m6 0 6 6-6 6m-2-14-2 16"></path></svg>
-                                Investigate Code
-                            </button>
-                        </form>
-                        <small>Read-only · no checkout modification or commits</small>
-                    </section>
-
                     <section class="rail-card feedback-card" aria-labelledby="feedback-heading" th:if="${#strings.toString(investigation.status) == 'COMPLETED'}">
                         <div class="rail-heading">
                             <div>
                                 <p class="eyebrow">Improve history</p>
-                                <h2 id="feedback-heading">Was this diagnosis correct?</h2>
+                                <h2 id="feedback-heading">Was this result correct?</h2>
                             </div>
                         </div>
                         <form th:action="@{/investigations/{id}/feedback(id=${investigation.id})}" action="/investigations/1/feedback" method="post" data-feedback-form data-submit-form>

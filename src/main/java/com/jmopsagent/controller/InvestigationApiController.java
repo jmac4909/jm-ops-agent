@@ -24,9 +24,10 @@ public class InvestigationApiController {
         Investigation value = investigations.get(id);
         return new StatusResponse(value.getId(), value.getStatus().name(), value.getService(),
                 value.getFinalDiagnosis(), value.getConfidence().name(), value.getRootCauseCategory().name(),
-                value.getStartedAt(), value.getCompletedAt());
+                value.getStartedAt(), value.getCompletedAt(), value.getIncidentStart(), value.getIncidentEnd());
     }
 
     public record StatusResponse(UUID id, String status, String service, String diagnosis, String confidence,
-                                 String rootCauseCategory, Instant startedAt, Instant completedAt) {}
+                                 String rootCauseCategory, Instant startedAt, Instant completedAt,
+                                 Instant incidentStart, Instant incidentEnd) {}
 }

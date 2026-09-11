@@ -16,7 +16,11 @@ public class BoundedReasoningEvidenceMapper {
     public List<ReasoningEvidence> map(List<EvidenceItem> items) {
         List<ReasoningEvidence> result = new ArrayList<>();
         int remaining = MAX_TOTAL_CHARACTERS;
-        for (EvidenceItem item : items) {
+        // Follow-ups can collect fresh evidence after the original prompt filled its capacity.
+        // Prioritize collection time so those new findings reach reasoning, even for old event dates.
+        for (EvidenceItem item : items.stream().sorted(java.util.Comparator.comparing(EvidenceItem::getCollectedAt,
+                java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))).toList()) {
+            if (item.isSupersededByScopeChange()) continue;
             if (remaining < 100) break;
             String rawSummary = item.getSummary() == null ? "" : item.getSummary();
             String summary = rawSummary.substring(0, Math.min(rawSummary.length(), Math.min(2_000, remaining)));

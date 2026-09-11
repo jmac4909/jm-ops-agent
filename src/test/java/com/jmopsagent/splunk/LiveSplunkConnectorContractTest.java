@@ -47,7 +47,7 @@ class LiveSplunkConnectorContractTest {
                 .contains("coalesce(")
                 .startsWith("search (index=\"test_index\") sourcetype=\"cf:logmessage\"")
                 .contains("(cf_app_name=\"catalog-service\" OR cf_app_name=\"catalog-green-test\")")
-                .contains("(ERROR OR Exception OR status>=500)")
+                .contains("(ERROR OR Exception OR status>=500 OR \"statusCode\" OR \"httpStatus\" OR \"http_status\")")
                 .contains("service=\"catalog-service\" OR service=\"catalog-green-test\"")
                 .contains("| fields - _raw")
                 .endsWith("| table _time trackingId service downstreamService httpStatus outcome severity message operation"
@@ -60,7 +60,7 @@ class LiveSplunkConnectorContractTest {
         String activity = builder.recentActivity(List.of("test_index"), List.of("catalog-service"),
                 List.of("platform-json"), 25);
         assertThat(activity).contains("isnotnull(operation) AND isnotnull(httpStatus)")
-                .contains("(\"traceId\") (\"statusCode\")")
+                .contains("(\"X-TrackingId\" OR \"traceId\") (\"statusCode\")")
                 .contains("tonumber(httpStatus)>=200 AND tonumber(httpStatus)<400")
                 .contains("upper(severity)!=\"ERROR\"")
                 .contains("upper(severity)!=\"FATAL\"")
@@ -68,7 +68,7 @@ class LiveSplunkConnectorContractTest {
                 .contains("stats count AS trafficEventCount BY _time service operation httpStatus")
                 .contains("head 26")
                 .contains("table _time service httpStatus operation trafficEventCount message");
-        assertThat(activity.indexOf("(\"traceId\") (\"statusCode\")"))
+        assertThat(activity.indexOf("(\"X-TrackingId\" OR \"traceId\") (\"statusCode\")"))
                 .isLessThan(activity.indexOf("spath path=\"msg.traceId\""));
 
         String events = builder.serviceEvents(List.of("test_index"), List.of("catalog-green-test"),
@@ -91,7 +91,7 @@ class LiveSplunkConnectorContractTest {
         assertThat(structured)
                 .startsWith("search (index=\"test_index\") sourcetype=\"cf:logmessage\"")
                 .contains("cf_app_name=\"catalog-green-test\"")
-                .contains("(\"traceId\") (\"statusCode\")")
+                .contains("(\"X-TrackingId\" OR \"traceId\") (\"statusCode\")")
                 .contains("| head 21")
                 .contains("| dedup trackingId")
                 .contains("jmopsSourceFormat=\"application-log\"");
@@ -108,7 +108,7 @@ class LiveSplunkConnectorContractTest {
     }
 
     @Test
-    void selectedPlainTextProfileUsesFixedRexOnlyWhenSelected() {
+    void selectedPlainTextProfileReusesTheSharedFixedExtraction() {
         SplunkFieldProfile plain = new SplunkFieldProfile();
         plain.setName("prefixed-text");
         plain.setSourcetype("cf:logmessage");
@@ -118,10 +118,10 @@ class LiveSplunkConnectorContractTest {
 
         assertThat(normalizer.pipeline()).doesNotContain("rex field=_raw");
         assertThat(normalizer.pipeline(List.of("prefixed-text")))
-                .contains("rex field=_raw \"(?i)X-TrackingId[_=]")
-                .contains("jmops_rex_0_tracking_id");
+                .contains("rex field=jmops_text", "jmops_text_trackingId")
+                .doesNotContain("rex field=_raw", "jmops_rex_0_tracking_id");
         assertThat(normalizer.businessCallRawPredicate(List.of("prefixed-text")))
-                .isEqualTo("(\"X-TrackingId\")");
+                .isEqualTo("(\"X-TrackingId\") (\"statusCode\")");
         assertThatThrownBy(() -> normalizer.pipeline(List.of("unknown-profile")))
                 .hasMessageContaining("Unknown or duplicate");
     }
@@ -154,9 +154,9 @@ class LiveSplunkConnectorContractTest {
                 .trackingApplicationLogs(List.of("application_index"), "DEMO-TRACE-001",
                         List.of("legacy-app-test"), List.of("prefixed-text"), 25);
         assertThat(textTracking).contains("cf_app_name=\"legacy-app-test\"")
-                .contains("rex field=_raw \"(?i)X-TrackingId[_=]");
+                .contains("rex field=jmops_text", "jmops_text_trackingId");
         assertThat(textTracking.indexOf("cf_app_name=\"legacy-app-test\""))
-                .isLessThan(textTracking.indexOf("rex field=_raw"));
+                .isLessThan(textTracking.indexOf("rex field=jmops_text"));
     }
 
     @Test
@@ -596,6 +596,52 @@ class LiveSplunkConnectorContractTest {
 
         assertThat(result.outcome()).isEqualTo(expected);
         assertThat(result.result().evidence()).isEmpty();
+        assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void latestTrackingWireRequestQualifiesAndOrdersBeforeLimitingWithoutBodies() {
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicInteger calls = new AtomicInteger();
+        LiveSplunkConnector connector = connector(request -> {
+            calls.incrementAndGet();
+            var sink = new org.springframework.mock.http.client.reactive.MockClientHttpRequest(request.method(), request.url());
+            return request.writeTo(sink, org.springframework.web.reactive.function.client.ExchangeStrategies.withDefaults())
+                    .then(Mono.defer(sink::getBodyAsString)).map(encoded -> {
+                        body.set(java.net.URLDecoder.decode(encoded, StandardCharsets.UTF_8));
+                        return ClientResponse.create(HttpStatus.OK).body("""
+                                {"result":{"_time":"2026-01-15T10:40:00Z","service":"catalog-green-test","trackingId":"DEMO-LATEST","httpStatus":"200","jmopsSourceFormat":"application-log","requestBody":"private-body-must-not-survive"}}
+                                """).build();
+                    });
+        }, properties(), emptyRegistry());
+        var response = connector.searchLatestTrackingIdDetailed("catalog-service", Environment.TEST, QUERY, SplunkSearchPermit.unlimited());
+        assertThat(body.get()).contains("cf_app_name=\"catalog-green-test\"", "where isnotnull(trackingId)", "sort 51 -_time, +trackingId", "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$",
+                "^[1-5][0-9]{2}$", "NOT like(trackingId,\"%..%\")",
+                "earliest_time=2026-01-15T10:30:00Z", "latest_time=2026-01-15T10:50:00Z")
+                .doesNotContain("| head ", "cf:httpaccess");
+        assertThat(body.get().indexOf("where isnotnull(trackingId)")).isLessThan(body.get().indexOf("sort 51"));
+        assertThat(response.result().evidence()).singleElement().satisfies(item -> {
+            assertThat(item.metadata()).containsEntry("trackingId", "DEMO-LATEST")
+                    .containsEntry("sourceFormat", "application-log").containsEntry("scanCapped", "false");
+            assertThat(item.service()).isEqualTo("catalog-service");
+            assertThat(item.content()).contains("DEMO-LATEST").doesNotContain("private-body-must-not-survive");
+        });
+        assertThat(response.result().truncated()).isFalse();
+        assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void latestTrackingNeverFallsBackToRouterEventsAndHonorsPermits() {
+        AtomicInteger calls = new AtomicInteger();
+        LiveSplunkConnector connector = connector(request -> {
+            calls.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.OK).body("").build());
+        }, properties(), emptyRegistry());
+        assertThat(connector.searchLatestTrackingIdDetailed("catalog-service", Environment.TEST, QUERY, () -> false).outcome())
+                .isEqualTo(SplunkSearchOutcome.LIMIT_REACHED);
+        assertThat(calls).hasValue(0);
+        assertThat(connector.searchLatestTrackingIdDetailed("catalog-service", Environment.TEST, QUERY, () -> true).outcome())
+                .isEqualTo(SplunkSearchOutcome.NO_DATA);
         assertThat(calls).hasValue(1);
     }
 

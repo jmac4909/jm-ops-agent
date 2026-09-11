@@ -2,6 +2,7 @@ package com.jmopsagent.controller;
 
 import com.jmopsagent.conversation.FollowUpConversationService;
 import com.jmopsagent.domain.Investigation;
+import com.jmopsagent.domain.IncidentWindow;
 import com.jmopsagent.orchestration.InvestigationApplicationService;
 import com.jmopsagent.orchestration.InvestigationWorkQueue;
 import com.jmopsagent.ui.InvestigationViewAssembler;
@@ -45,16 +46,41 @@ public class InvestigationController {
     @PostMapping("/investigations/tracking")
     public String startTracking(@RequestParam String trackingId,
                                 @RequestParam String environment,
+                                @RequestParam(required = false) String incidentStart,
+                                @RequestParam(required = false) String incidentEnd,
                                 RedirectAttributes redirect) {
         try {
-            Investigation investigation = investigations.createTrackingInvestigation(trackingId, environment);
+            IncidentWindow window = IncidentWindow.parse(incidentStart, incidentEnd);
+            Investigation investigation = window == null
+                    ? investigations.createTrackingInvestigation(trackingId, environment)
+                    : investigations.createTrackingInvestigation(trackingId, environment, window);
             workQueue.submit(investigation.getId());
             return "redirect:/investigations/" + investigation.getId();
         } catch (IllegalArgumentException ex) {
             redirect.addFlashAttribute("error", ex.getMessage());
             redirect.addFlashAttribute("trackingId", trackingId);
             redirect.addFlashAttribute("environment", environment);
-            return "redirect:/#tracking";
+            return "redirect:/";
+        }
+    }
+
+    @PostMapping("/investigations")
+    public String start(@RequestParam(required = false) String userProblem,
+                        @RequestParam(required = false) String service,
+                        @RequestParam(required = false) String trackingId,
+                        @RequestParam(required = false) String environment,
+                        RedirectAttributes redirect) {
+        try {
+            Investigation investigation = investigations.createInvestigation(userProblem, service, trackingId, environment, null);
+            workQueue.submit(investigation.getId());
+            return "redirect:/investigations/" + investigation.getId();
+        } catch (IllegalArgumentException ex) {
+            redirect.addFlashAttribute("error", ex.getMessage());
+            redirect.addFlashAttribute("userProblem", userProblem);
+            redirect.addFlashAttribute("service", service);
+            redirect.addFlashAttribute("trackingId", trackingId);
+            redirect.addFlashAttribute("environment", environment);
+            return "redirect:/";
         }
     }
 
@@ -62,9 +88,14 @@ public class InvestigationController {
     public String startService(@RequestParam String service,
                                @RequestParam String environment,
                                @RequestParam String userProblem,
+                               @RequestParam(required = false) String incidentStart,
+                               @RequestParam(required = false) String incidentEnd,
                                RedirectAttributes redirect) {
         try {
-            Investigation investigation = investigations.createServiceInvestigation(service, environment, userProblem);
+            IncidentWindow window = IncidentWindow.parse(incidentStart, incidentEnd);
+            Investigation investigation = window == null
+                    ? investigations.createServiceInvestigation(service, environment, userProblem)
+                    : investigations.createServiceInvestigation(service, environment, userProblem, window);
             workQueue.submit(investigation.getId());
             return "redirect:/investigations/" + investigation.getId();
         } catch (IllegalArgumentException ex) {
@@ -72,7 +103,7 @@ public class InvestigationController {
             redirect.addFlashAttribute("service", service);
             redirect.addFlashAttribute("environment", environment);
             redirect.addFlashAttribute("userProblem", userProblem);
-            return "redirect:/#service";
+            return "redirect:/";
         }
     }
 

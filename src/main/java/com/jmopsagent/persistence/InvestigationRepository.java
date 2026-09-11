@@ -29,4 +29,9 @@ public interface InvestigationRepository extends JpaRepository<Investigation, UU
     @Query("update Investigation i set i.splunkSearchCount = i.splunkSearchCount + 1, "
             + "i.version = i.version + 1 where i.id = :id and i.splunkSearchCount < :maximum")
     int reserveSplunkSearch(@Param("id") UUID id, @Param("maximum") int maximum);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Investigation i set i.sourceFileReadCount = i.sourceFileReadCount + 1, "
+            + "i.version = i.version + 1 where i.id = :id and i.sourceFileReadCount < :maximum")
+    int reserveSourceFileRead(@Param("id") UUID id, @Param("maximum") int maximum);
 }

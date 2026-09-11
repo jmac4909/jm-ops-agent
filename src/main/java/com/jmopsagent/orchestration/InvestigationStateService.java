@@ -63,11 +63,60 @@ public class InvestigationStateService {
         investigations.save(investigation);
     }
 
+    @Transactional
+    public void resolveIncidentWindow(UUID id, com.jmopsagent.domain.IncidentWindow window, String reason) {
+        Investigation investigation = get(id);
+        investigation.resolveIncidentWindow(window, reason);
+        investigations.save(investigation);
+    }
+
+    @Transactional
+    public void resolveTrackingId(UUID id, String trackingId) {
+        resolveTrackingId(id, trackingId, false);
+    }
+
+    @Transactional
+    public void resolveTrackingId(UUID id, String trackingId, boolean userSupplied) {
+        Investigation investigation = get(id);
+        String validated = trackingId == null ? null : com.jmopsagent.connector.ConnectorInputValidator.trackingId(trackingId);
+        if (userSupplied) investigation.setUserTrackingId(validated);
+        else investigation.setTrackingId(validated);
+        investigations.save(investigation);
+    }
+
+    @Transactional
+    public void beginTrackingLookup(UUID id) {
+        Investigation investigation = get(id);
+        investigation.beginTrackingLookup();
+        investigations.save(investigation);
+    }
+
+    @Transactional
+    public void setActiveLookup(UUID id, UUID evidenceId) {
+        Investigation investigation = get(id);
+        investigation.setActiveLookupEvidenceId(evidenceId);
+        investigations.save(investigation);
+    }
+
+    @Transactional
+    public void resolveTarget(UUID id, String service, com.jmopsagent.domain.DeploymentEnvironment environment) {
+        Investigation investigation = get(id);
+        investigation.resolveTarget(service, environment);
+        investigation.addEvent(InvestigationEvent.note(InvestigationEventType.ANALYSIS,
+                "Conversation target changed to " + service + " in " + environment + " from the user's explicit request"));
+        investigations.save(investigation);
+    }
+
     /** Atomically reserves one logical Splunk connector call against the persisted investigation budget. */
     @Transactional
     public boolean tryReserveSplunkSearch(UUID id, int maximum) {
         if (maximum < 1) return false;
         return investigations.reserveSplunkSearch(id, maximum) == 1;
+    }
+
+    @Transactional
+    public boolean tryReserveSourceFileRead(UUID id, int maximum) {
+        return maximum > 0 && investigations.reserveSourceFileRead(id, maximum) == 1;
     }
 
     @Transactional
