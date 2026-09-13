@@ -4,6 +4,17 @@ JM Ops Agent is a local, read-only operational triage proof of concept for stand
 
 The default `local-mock` profile is a complete zero-connectivity vertical slice. It reconstructs the fictional tracking ID `DEMO-TRACE-001` in `TEST`, follows a failure from Edge Gateway through Identity Service to Catalog Service, correlates runtime, deployment, log, and configuration evidence, and persists the diagnosis for feedback and follow-up questions.
 
+## Design and validation
+
+| Start here | What to look for |
+| --- | --- |
+| [Run the mock demo](#run-the-zero-connectivity-demo) | A reproducible investigation without enterprise credentials or model usage |
+| [Architecture and trust boundaries](docs/architecture.md) | The application owns adapters, evidence, workflow state and authority; the model proposes reasoning |
+| [Adaptive investigations](docs/adaptive-investigations.md) | Bounded follow-up evidence requests rather than arbitrary model-generated commands |
+| [Tests](src/test/java/com/jmopsagent/) and [repository safety](CONTRIBUTING.md#repository-safety-check) | Connector denial paths, redaction and source/history checks |
+
+This is a proof of concept: diagnoses can recommend a fix, but the application cannot apply one. The mock flow uses fictional fixtures and requires no external systems or credentials.
+
 For a new Windows workstation or an AI-assisted local setup, use [Windows and Claude Code handoff](WINDOWS_CLAUDE_HANDOFF.md). It includes a ready-to-paste prompt that keeps the read-only and credential boundaries intact.
 
 ## Safety boundary
